@@ -29,11 +29,23 @@ export const getCurrentLocation = (): Promise<GeoLocation> => {
           });
         },
         (error) => {
-          reject(error);
+          let msg = "Unknown location error";
+          switch(error.code) {
+            case error.PERMISSION_DENIED:
+              msg = "Location permission denied. Please enable GPS.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              msg = "Location information unavailable.";
+              break;
+            case error.TIMEOUT:
+              msg = "Location request timed out. Check your connection.";
+              break;
+          }
+          reject(new Error(msg));
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
+          timeout: 15000, // Increased timeout for better accuracy lock
           maximumAge: 0
         }
       );

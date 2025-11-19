@@ -7,7 +7,7 @@ import Button from '../../components/Button';
 
 const DEPARTMENTS = [
   "Computer Science and Engineering",
-  "CES-DS",
+  "CSE-DS",
   "CSE-AIML",
   "Civil Engineering",
   "Electronics and Communications Engineering",
@@ -16,7 +16,7 @@ const DEPARTMENTS = [
 
 const SUBJECTS_BY_DEPT: Record<string, string[]> = {
   "Computer Science and Engineering": ["Data Structures", "Algorithms", "Database Systems", "Operating Systems", "Computer Networks"],
-  "CES-DS": ["Data Science", "Big Data Analytics", "Machine Learning", "Python for Data Science", "Statistics"],
+  "CSE-DS": ["ATCD", "PA", "WSMA", "NLP", "WSMA-LAB", "PA-LAB", "I&EE"],
   "CSE-AIML": ["Artificial Intelligence", "Deep Learning", "Neural Networks", "Natural Language Processing", "Computer Vision"],
   "Civil Engineering": ["Structural Analysis", "Geotechnical Engineering", "Surveying", "Construction Mgmt"],
   "Electronics and Communications Engineering": ["Digital Electronics", "Signals & Systems", "Microprocessors", "VLSI Design", "Communication Systems"],
@@ -68,11 +68,18 @@ const AdminDashboard: React.FC = () => {
     }
   }, [reportStartDate, reportEndDate, reportDept, users, records, sessions]);
 
-  const refreshData = () => {
-    setRecords(storageService.getAllAttendance());
-    setUsers(storageService.getAllUsers());
-    setSessions(storageService.getAllSessions());
-    setStats(storageService.getGlobalStats());
+  const refreshData = async () => {
+    const [allRecords, allUsers, allSessions, globalStats] = await Promise.all([
+      storageService.getAllAttendance(),
+      storageService.getAllUsers(),
+      storageService.getAllSessions(),
+      storageService.getGlobalStats()
+    ]);
+
+    setRecords(allRecords);
+    setUsers(allUsers);
+    setSessions(allSessions);
+    setStats(globalStats);
   };
 
   const generateReports = () => {
@@ -161,7 +168,7 @@ const AdminDashboard: React.FC = () => {
     setGeneratedReports(reports.sort((a, b) => a.overallPercentage - b.overallPercentage));
   };
 
-  const handleManualAttendance = () => {
+  const handleManualAttendance = async () => {
     if (!manualStudentId || !manualSubject) return;
 
     const student = users.find(u => u.uid === manualStudentId);
@@ -179,33 +186,33 @@ const AdminDashboard: React.FC = () => {
       verifiedByLocation: false
     };
 
-    storageService.markAttendance(record);
+    await storageService.markAttendance(record);
     setManualSubject('');
     setManualStudentId('');
-    refreshData();
+    await refreshData();
     alert('Attendance marked manually.');
   };
 
-  const handleDeleteAttendance = (id: string) => {
+  const handleDeleteAttendance = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this attendance record?')) {
-      storageService.deleteAttendance(id);
-      refreshData();
+      await storageService.deleteAttendance(id);
+      await refreshData();
     }
   };
 
-  const handleDeleteUser = (uid: string) => {
+  const handleDeleteUser = async (uid: string) => {
     if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      storageService.deleteUser(uid);
-      refreshData();
+      await storageService.deleteUser(uid);
+      await refreshData();
     }
   };
 
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingUser) {
-      storageService.updateUser(editingUser);
+      await storageService.updateUser(editingUser);
       setEditingUser(null);
-      refreshData();
+      await refreshData();
     }
   };
 
@@ -623,7 +630,6 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-6 py-3">Student</th>
                     <th className="px-6 py-3">Department</th>
                     <th className="px-6 py-3">Overall Attendance</th>
-                    <th className="px-6 py-3 w-1/3">Subject Breakdown</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -656,27 +662,10 @@ const AdminDashboard: React.FC = () => {
                           {report.totalPresent} / {report.totalSessions} Sessions
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                         <div className="flex flex-wrap gap-2">
-                           {Object.entries(report.subjectBreakdown).map(([subject, stats]: [string, { total: number; present: number; percentage: number }]) => (
-                             <div key={subject} className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-xs border border-slate-200 dark:border-slate-600" title={`${stats.present}/${stats.total} classes`}>
-                               <span className="font-semibold text-slate-700 dark:text-slate-200">{subject}:</span>{' '}
-                               <span className={`${
-                                 stats.percentage < 75 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
-                               }`}>
-                                 {stats.percentage}%
-                               </span>
-                             </div>
-                           ))}
-                           {Object.keys(report.subjectBreakdown).length === 0 && (
-                             <span className="text-slate-400 text-xs">No subject data available</span>
-                           )}
-                         </div>
-                      </td>
                     </tr>
                   ))}
                   {generatedReports.length === 0 && (
-                    <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400">No reports generated. Adjust filters to see data.</td></tr>
+                    <tr><td colSpan={3} className="px-6 py-8 text-center text-slate-400">No reports generated. Adjust filters to see data.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -778,3 +767,4 @@ const AdminDashboard: React.FC = () => {
 };
 
 export default AdminDashboard;
+    

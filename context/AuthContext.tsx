@@ -5,9 +5,9 @@ import { storageService } from '../services/storageService';
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => UserRole | null;
+  login: (email: string, password: string) => Promise<UserRole | null>;
   logout: () => void;
-  signup: (user: User) => void;
+  signup: (user: User) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,21 +22,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = (email: string, password: string): UserRole | null => {
-    // Simulate login against mock DB
-    const foundUser = storageService.authenticateUser(email, password);
-    if (foundUser) {
-      setUser(foundUser);
-      localStorage.setItem('smart_attendance_user', JSON.stringify(foundUser));
-      return foundUser.role;
+  const login = async (email: string, password: string): Promise<UserRole | null> => {
+    try {
+      const foundUser = await storageService.authenticateUser(email, password);
+      if (foundUser) {
+        setUser(foundUser);
+        localStorage.setItem('smart_attendance_user', JSON.stringify(foundUser));
+        return foundUser.role;
+      }
+      return null;
+    } catch (error) {
+      console.error('Login error:', error);
+      return null;
     }
-    return null;
   };
 
-  const signup = (newUser: User) => {
-    storageService.saveUser(newUser);
-    setUser(newUser);
-    localStorage.setItem('smart_attendance_user', JSON.stringify(newUser));
+  const signup = async (newUser: User) => {
+    try {
+      await storageService.saveUser(newUser);
+      setUser(newUser);
+      localStorage.setItem('smart_attendance_user', JSON.stringify(newUser));
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
+    }
   };
 
   const logout = () => {

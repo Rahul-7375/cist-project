@@ -11,28 +11,39 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       setError("Please enter both email and password.");
       return;
     }
     
-    const role = login(email, password);
+    setIsLoading(true);
+    setError('');
     
-    if (role) {
-      setError('');
-      if (role === UserRole.ADMIN) navigate('/admin');
-      else if (role === UserRole.FACULTY) navigate('/faculty');
-      else navigate('/student');
-    } else {
-      setError('Invalid credentials. Please check your email and password.');
+    try {
+      const role = await login(email, password);
+      
+      if (role) {
+        setError('');
+        if (role === UserRole.ADMIN) navigate('/admin');
+        else if (role === UserRole.FACULTY) navigate('/faculty');
+        else navigate('/student');
+      } else {
+        setError('Invalid credentials. Please check your email and password.');
+      }
+    } catch (err) {
+      setError('An error occurred during login. Please try again.');
+      console.error('Login error:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -42,10 +53,8 @@ const Login: React.FC = () => {
       setError("Please enter your email address.");
       return;
     }
-    // Simulate sending reset link
     setSuccessMessage(`Password reset instructions have been sent to ${email}`);
     setError('');
-    // Reset view after a delay or let user click back
   };
 
   return (
@@ -185,7 +194,7 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full py-3">
+              <Button type="submit" className="w-full py-3" isLoading={isLoading}>
                 Sign In
               </Button>
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import Webcam from 'react-webcam';
@@ -10,7 +9,7 @@ import Button from '../components/Button';
 
 const DEPARTMENTS = [
   "Computer Science and Engineering",
-  "CES-DS",
+  "CSE-DS",
   "CSE-AIML",
   "Civil Engineering",
   "Electronics and Communications Engineering",
@@ -19,7 +18,7 @@ const DEPARTMENTS = [
 
 const SUBJECTS_BY_DEPT: Record<string, string[]> = {
   "Computer Science and Engineering": ["Data Structures", "Algorithms", "Database Systems", "Operating Systems", "Computer Networks"],
-  "CES-DS": ["Data Science", "Big Data Analytics", "Machine Learning", "Python for Data Science", "Statistics"],
+  "CSE-DS": ["ATCD", "PA", "WSMA", "NLP", "WSMA-LAB", "PA-LAB", "I&EE"],
   "CSE-AIML": ["Artificial Intelligence", "Deep Learning", "Neural Networks", "Natural Language Processing", "Computer Vision"],
   "Civil Engineering": ["Structural Analysis", "Geotechnical Engineering", "Surveying", "Construction Mgmt"],
   "Electronics and Communications Engineering": ["Digital Electronics", "Signals & Systems", "Microprocessors", "VLSI Design", "Communication Systems"],
@@ -27,7 +26,7 @@ const SUBJECTS_BY_DEPT: Record<string, string[]> = {
 };
 
 const Signup: React.FC = () => {
-  const [step, setStep] = useState(1); // 1: Details, 2: Face ID
+  const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,6 +35,8 @@ const Signup: React.FC = () => {
   const [subject, setSubject] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.STUDENT);
   const [faceImage, setFaceImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const webcamRef = useRef<Webcam>(null);
   const { signup } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -50,27 +51,45 @@ const Signup: React.FC = () => {
 
   const handleDepartmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setDepartment(e.target.value);
-    setSubject(''); // Reset subject when department changes
+    setSubject('');
   };
 
-  const handleSignup = () => {
-    // Only students require face image
+  const handleSignup = async () => {
     if (role === UserRole.STUDENT && !faceImage) return;
     
-    signup({
-      uid: Date.now().toString(),
-      name,
-      email,
-      password,
-      role,
-      department: (role === UserRole.STUDENT || role === UserRole.FACULTY) ? department : undefined,
-      subject: (role === UserRole.FACULTY) ? subject : undefined,
-      faceDataUrl: faceImage || undefined
-    });
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      await signup({
+        uid: Date.now().toString(),
+        name,
+        email,
+        password,
+        role,
+        department: (role === UserRole.STUDENT || role === UserRole.FACULTY) ? department : undefined,
+        subject: (role === UserRole.FACULTY) ? subject : undefined,
+        faceDataUrl: faceImage || undefined
+      });
 
-    if (role === UserRole.ADMIN) navigate('/admin');
-    else if (role === UserRole.FACULTY) navigate('/faculty');
-    else navigate('/student');
+      if (role === UserRole.ADMIN) navigate('/admin');
+      else if (role === UserRole.FACULTY) navigate('/faculty');
+      else navigate('/student');
+    } catch (err: any) {
+      console.error('Signup error:', err);
+      // Show the specific error message from Firebase (e.g. Project Not Found, Permission Denied)
+      const errorMessage = err?.message || 'Failed to create account. Please try again.';
+      
+      if (errorMessage.includes('project')) {
+        setError('Configuration Error: Firebase Project ID invalid. Please update firebase.ts');
+      } else if (errorMessage.includes('permission')) {
+        setError('Database Error: Insufficient permissions. Check Firestore rules.');
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const requiresFaceId = role === UserRole.STUDENT;
@@ -100,9 +119,14 @@ const Signup: React.FC = () => {
         </div>
 
         <div className="p-8">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm rounded-lg border border-red-100 dark:border-red-900/50">
+              <span className="font-semibold">Error:</span> {error}
+            </div>
+          )}
+          
           {step === 1 ? (
             <div className="space-y-6">
-              {/* Role Selection - Moved to Top */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">I am a...</label>
                 <div className="grid grid-cols-3 gap-4">
@@ -224,6 +248,7 @@ const Signup: React.FC = () => {
                 <Button 
                   onClick={requiresFaceId ? () => setStep(2) : handleSignup} 
                   disabled={!isDetailsValid}
+                  isLoading={!requiresFaceId && isLoading}
                 >
                   {requiresFaceId ? 'Next: Face Registration' : 'Create Account'}
                 </Button>
@@ -249,7 +274,6 @@ const Signup: React.FC = () => {
                   />
                 )}
                 
-                {/* Overlay for face guide */}
                 {!faceImage && (
                   <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-xl m-8 pointer-events-none border-dashed"></div>
                 )}
@@ -271,7 +295,7 @@ const Signup: React.FC = () => {
                 <Button variant="outline" onClick={() => setStep(1)}>
                   Back
                 </Button>
-                <Button onClick={handleSignup} disabled={!faceImage}>
+                <Button onClick={handleSignup} disabled={!faceImage} isLoading={isLoading}>
                   <CheckCircle className="w-4 h-4 mr-2" /> Complete Registration
                 </Button>
               </div>

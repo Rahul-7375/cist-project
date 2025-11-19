@@ -1,131 +1,315 @@
 
 import { User, UserRole, TimetableEntry, ClassSession, AttendanceRecord } from '../types';
+import { db } from '../firebase';
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  where, 
+  updateDoc, 
+  deleteDoc, 
+  doc,
+  setDoc,
+  orderBy
+} from 'firebase/firestore';
 
-// Mock Data Keys - In a real app, these would be Firebase Collections
-const USERS_KEY = 'smart_attendance_users';
-const TIMETABLE_KEY = 'smart_attendance_timetable';
-const SESSIONS_KEY = 'smart_attendance_sessions';
-const ATTENDANCE_KEY = 'smart_attendance_attendance';
+// Collection names
+const USERS_COLLECTION = 'users';
+const TIMETABLE_COLLECTION = 'timetable';
+const SESSIONS_COLLECTION = 'sessions';
+const ATTENDANCE_COLLECTION = 'attendance';
 
-const getFromStorage = <T,>(key: string): T[] => {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : [];
-};
-
-const saveToStorage = <T,>(key: string, data: T[]) => {
-  localStorage.setItem(key, JSON.stringify(data));
+// Helper to remove undefined fields as Firestore doesn't support them
+const sanitizeData = (data: any) => {
+  return Object.entries(data).reduce((acc, [key, value]) => {
+    if (value !== undefined && value !== null) { // Also handle null if needed, but Firestore supports null
+      acc[key] = value;
+    }
+    return acc;
+  }, {} as any);
 };
 
 export const storageService = {
   // User Methods
-  saveUser: (user: User) => {
-    const users = getFromStorage<User>(USERS_KEY);
-    users.push(user);
-    saveToStorage(USERS_KEY, users);
+  saveUser: async (user: User) => {
+    try {
+      const userRef = doc(db, USERS_COLLECTION, user.uid);
+      // Sanitize data to remove undefined fields
+      const userData = sanitizeData(user);
+      
+      // Using Date.now() instead of Timestamp to avoid serialization issues
+      await setDoc(userRef, {
+        ...userData,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      console.log('User saved to Firebase:', user.email);
+    } catch (error: any) {
+      console.error('Error saving user:', error);
+      // Throwing specific error to be caught by UI
+      throw new Error(error.message || "Failed to save user data");
+    }
   },
   
-  updateUser: (updatedUser: User) => {
-    const users = getFromStorage<User>(USERS_KEY);
-    const index = users.findIndex(u => u.uid === updatedUser.uid);
-    if (index !== -1) {
-      users[index] = updatedUser;
-      saveToStorage(USERS_KEY, users);
+  updateUser: async (updatedUser: User) => {
+    try {
+      const userRef = doc(db, USERS_COLLECTION, updatedUser.uid);
+      const userData = sanitizeData(updatedUser);
+
+      await updateDoc(userRef, {
+        ...userData,
+        updatedAt: Date.now()
+      });
+      console.log('User updated in Firebase');
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
     }
   },
 
-  deleteUser: (uid: string) => {
-    let users = getFromStorage<User>(USERS_KEY);
-    users = users.filter(u => u.uid !== uid);
-    saveToStorage(USERS_KEY, users);
+  deleteUser: async (uid: string) => {
+    try {
+      const userRef = doc(db, USERS_COLLECTION, uid);
+      await deleteDoc(userRef);
+      console.log('User deleted from Firebase');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
   },
   
-  findUser: (email: string, role: UserRole, password?: string): User | undefined => {
-    const users = getFromStorage<User>(USERS_KEY);
-    // If password is provided, check it. If not (legacy/mock), just check email/role
-    if (password) {
-      return users.find(u => u.email === email && u.role === role && u.password === password);
+  findUser: async (email: string, role: UserRole, password?: string): Promise<User | undefined> => {
+    try {
+      const usersRef = collection(db, USERS_COLLECTION);
+      // Note: Composite queries (email + role) require an index. 
+      // If index is missing, this might fail. 
+      // Fallback: Query by email only, then filter in memory.
+      const q = query(usersRef, where('email', '==', email));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) return undefined;
+      
+      // Filter in memory to match role and password
+      const userData = querySnapshot.docs[0].data() as User;
+      
+      if (userData.role !== role) return undefined;
+      
+      if (password && userData.password !== password) {
+        return undefined;
+      }
+      
+      return userData;
+    } catch (error) {
+      console.error('Error finding user:', error);
+      return undefined;
     }
-    return users.find(u => u.email === email && u.role === role);
   },
 
-  authenticateUser: (email: string, password?: string): User | undefined => {
-    const users = getFromStorage<User>(USERS_KEY);
-    if (password) {
-      return users.find(u => u.email === email && u.password === password);
+  authenticateUser: async (email: string, password?: string): Promise<User | undefined> => {
+    try {
+      const usersRef = collection(db, USERS_COLLECTION);
+      const q = query(usersRef, where('email', '==', email));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        console.log('No user found with email:', email);
+        return undefined;
+      }
+      
+      const userData = querySnapshot.docs[0].data() as User;
+      
+      if (password && userData.password !== password) {
+        console.log('Password mismatch');
+        return undefined;
+      }
+      
+      console.log('User authenticated:', userData.email);
+      return userData;
+    } catch (error) {
+      console.error('Error authenticating user:', error);
+      return undefined;
     }
-    return users.find(u => u.email === email);
   },
 
-  getAllUsers: (): User[] => {
-    return getFromStorage<User>(USERS_KEY);
+  getAllUsers: async (): Promise<User[]> => {
+    try {
+      const usersRef = collection(db, USERS_COLLECTION);
+      const querySnapshot = await getDocs(usersRef);
+      return querySnapshot.docs.map(doc => doc.data() as User);
+    } catch (error) {
+      console.error('Error getting all users:', error);
+      return [];
+    }
   },
 
   // Timetable Methods
-  getTimetable: (facultyId: string): TimetableEntry[] => {
-    const all = getFromStorage<TimetableEntry>(TIMETABLE_KEY);
-    return all.filter(t => t.facultyId === facultyId);
+  getTimetable: async (facultyId: string): Promise<TimetableEntry[]> => {
+    try {
+      const timetableRef = collection(db, TIMETABLE_COLLECTION);
+      const q = query(timetableRef, where('facultyId', '==', facultyId));
+      const querySnapshot = await getDocs(q);
+      // Ensure doc.id is used as the entry id to enable correct deletion
+      return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as TimetableEntry));
+    } catch (error) {
+      console.error('Error getting timetable:', error);
+      return [];
+    }
   },
 
-  getAllTimetables: (): TimetableEntry[] => {
-    return getFromStorage<TimetableEntry>(TIMETABLE_KEY);
+  getAllTimetables: async (): Promise<TimetableEntry[]> => {
+    try {
+      const timetableRef = collection(db, TIMETABLE_COLLECTION);
+      const querySnapshot = await getDocs(timetableRef);
+      // Ensure doc.id is used as the entry id
+      return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as TimetableEntry));
+    } catch (error) {
+      console.error('Error getting all timetables:', error);
+      return [];
+    }
   },
 
-  addTimetableEntry: (entry: TimetableEntry) => {
-    const all = getFromStorage<TimetableEntry>(TIMETABLE_KEY);
-    all.push(entry);
-    saveToStorage(TIMETABLE_KEY, all);
+  addTimetableEntry: async (entry: TimetableEntry) => {
+    try {
+      // Use setDoc with entry.id to ensure consistency between Document ID and data ID
+      const entryRef = doc(db, TIMETABLE_COLLECTION, entry.id);
+      await setDoc(entryRef, {
+        ...entry,
+        createdAt: Date.now()
+      });
+      console.log('Timetable entry added');
+    } catch (error) {
+      console.error('Error adding timetable entry:', error);
+      throw error;
+    }
   },
 
-  deleteTimetableEntry: (id: string) => {
-    let all = getFromStorage<TimetableEntry>(TIMETABLE_KEY);
-    all = all.filter(t => t.id !== id);
-    saveToStorage(TIMETABLE_KEY, all);
+  deleteTimetableEntry: async (id: string) => {
+    try {
+      const entryRef = doc(db, TIMETABLE_COLLECTION, id);
+      await deleteDoc(entryRef);
+      console.log('Timetable entry deleted');
+    } catch (error) {
+      console.error('Error deleting timetable entry:', error);
+      throw error;
+    }
   },
 
   // Session Methods
-  createSession: (session: ClassSession) => {
-    const all = getFromStorage<ClassSession>(SESSIONS_KEY);
-    // Deactivate other sessions for this faculty
-    const updated = all.map(s => s.facultyId === session.facultyId ? { ...s, isActive: false, endTime: Date.now() } : s);
-    updated.push(session);
-    saveToStorage(SESSIONS_KEY, updated);
+  createSession: async (session: ClassSession) => {
+    try {
+      // First, deactivate other sessions for this faculty
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const q = query(sessionsRef, where('facultyId', '==', session.facultyId), where('isActive', '==', true));
+      const querySnapshot = await getDocs(q);
+      
+      const updatePromises = querySnapshot.docs.map(docSnap => 
+        updateDoc(doc(db, SESSIONS_COLLECTION, docSnap.id), {
+          isActive: false,
+          endTime: Date.now()
+        })
+      );
+      
+      await Promise.all(updatePromises);
+      
+      // Now create the new session
+      const sessionRef = doc(db, SESSIONS_COLLECTION, session.id);
+      await setDoc(sessionRef, {
+        ...session,
+        createdAt: Date.now()
+      });
+      
+      console.log('Session created');
+    } catch (error) {
+      console.error('Error creating session:', error);
+      throw error;
+    }
   },
 
-  getActiveSession: (facultyId: string): ClassSession | undefined => {
-    const all = getFromStorage<ClassSession>(SESSIONS_KEY);
-    return all.find(s => s.facultyId === facultyId && s.isActive);
+  getActiveSession: async (facultyId: string): Promise<ClassSession | undefined> => {
+    try {
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const q = query(sessionsRef, where('facultyId', '==', facultyId), where('isActive', '==', true));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) return undefined;
+      
+      return querySnapshot.docs[0].data() as ClassSession;
+    } catch (error) {
+      console.error('Error getting active session:', error);
+      return undefined;
+    }
   },
 
-  getSessionById: (sessionId: string): ClassSession | undefined => {
-    const all = getFromStorage<ClassSession>(SESSIONS_KEY);
-    return all.find(s => s.id === sessionId);
+  getSessionById: async (sessionId: string): Promise<ClassSession | undefined> => {
+    try {
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const q = query(sessionsRef, where('id', '==', sessionId));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) return undefined;
+      
+      return querySnapshot.docs[0].data() as ClassSession;
+    } catch (error) {
+      console.error('Error getting session by ID:', error);
+      return undefined;
+    }
   },
 
-  getAllSessions: (): ClassSession[] => {
-    return getFromStorage<ClassSession>(SESSIONS_KEY);
+  getAllSessions: async (): Promise<ClassSession[]> => {
+    try {
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const querySnapshot = await getDocs(sessionsRef);
+      return querySnapshot.docs.map(doc => doc.data() as ClassSession);
+    } catch (error) {
+      console.error('Error getting all sessions:', error);
+      return [];
+    }
   },
 
-  endSession: (sessionId: string) => {
-    const all = getFromStorage<ClassSession>(SESSIONS_KEY);
-    const updated = all.map(s => s.id === sessionId ? { ...s, isActive: false, endTime: Date.now() } : s);
-    saveToStorage(SESSIONS_KEY, updated);
+  endSession: async (sessionId: string) => {
+    try {
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const q = query(sessionsRef, where('id', '==', sessionId));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const sessionDoc = querySnapshot.docs[0];
+        await updateDoc(doc(db, SESSIONS_COLLECTION, sessionDoc.id), {
+          isActive: false,
+          endTime: Date.now()
+        });
+        console.log('Session ended');
+      }
+    } catch (error) {
+      console.error('Error ending session:', error);
+      throw error;
+    }
   },
 
-  updateSessionQR: (sessionId: string, qrCode: string, token: string, timestamp: number) => {
-    const all = getFromStorage<ClassSession>(SESSIONS_KEY);
-    const updated = all.map(s => s.id === sessionId ? { 
-      ...s, 
-      currentQRCode: qrCode,
-      lastQrToken: token,
-      lastQrTimestamp: timestamp
-    } : s);
-    saveToStorage(SESSIONS_KEY, updated);
+  updateSessionQR: async (sessionId: string, qrCode: string, token: string, timestamp: number) => {
+    try {
+      const sessionsRef = collection(db, SESSIONS_COLLECTION);
+      const q = query(sessionsRef, where('id', '==', sessionId));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const sessionDoc = querySnapshot.docs[0];
+        await updateDoc(doc(db, SESSIONS_COLLECTION, sessionDoc.id), {
+          currentQRCode: qrCode,
+          lastQrToken: token,
+          lastQrTimestamp: timestamp
+        });
+      }
+    } catch (error) {
+      console.error('Error updating session QR:', error);
+      throw error;
+    }
   },
 
   // Secure Validation
-  validateQR: (qrContent: string): { valid: boolean; sessionId?: string; error?: string } => {
+  validateQR: async (qrContent: string): Promise<{ valid: boolean; sessionId?: string; error?: string }> => {
     try {
-      // Expected format: "SECURE:sessionId:timestamp:token"
       const parts = qrContent.split(':');
       if (parts.length !== 4 || parts[0] !== 'SECURE') {
         return { valid: false, error: 'Invalid QR Code format' };
@@ -134,8 +318,7 @@ export const storageService = {
       const [_, sessionId, timestampStr, token] = parts;
       const timestamp = parseInt(timestampStr);
       
-      const allSessions = getFromStorage<ClassSession>(SESSIONS_KEY);
-      const session = allSessions.find(s => s.id === sessionId);
+      const session = await storageService.getSessionById(sessionId);
 
       if (!session) {
         return { valid: false, error: 'Session not found' };
@@ -145,13 +328,10 @@ export const storageService = {
         return { valid: false, error: 'Session has ended' };
       }
 
-      // 1. Check Token Match (Prevents using old generated codes from the same session)
       if (session.lastQrToken !== token) {
         return { valid: false, error: 'QR Code expired (Token mismatch)' };
       }
 
-      // 2. Check Timestamp (Prevents replay of a screenshot if delay is too long)
-      // Allow 20 seconds window (10s life + 10s buffer for scanning/latency)
       const now = Date.now();
       const timeDiff = now - timestamp;
       
@@ -167,49 +347,111 @@ export const storageService = {
   },
 
   // Attendance Methods
-  markAttendance: (record: AttendanceRecord) => {
-    const all = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    // Check if already present
-    const exists = all.find(r => r.sessionId === record.sessionId && r.studentId === record.studentId);
-    if (!exists) {
-      all.push(record);
-      saveToStorage(ATTENDANCE_KEY, all);
+  markAttendance: async (record: AttendanceRecord): Promise<boolean> => {
+    try {
+      const attendanceRef = collection(db, ATTENDANCE_COLLECTION);
+      const q = query(
+        attendanceRef, 
+        where('sessionId', '==', record.sessionId),
+        where('studentId', '==', record.studentId)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        console.log('Attendance already marked');
+        return false;
+      }
+      
+      await addDoc(attendanceRef, {
+        ...record,
+        createdAt: Date.now()
+      });
+      
+      console.log('Attendance marked');
       return true;
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      return false;
     }
-    return false;
   },
 
-  deleteAttendance: (id: string) => {
-    let all = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    all = all.filter(r => r.id !== id);
-    saveToStorage(ATTENDANCE_KEY, all);
+  deleteAttendance: async (id: string) => {
+    try {
+      const attendanceRef = collection(db, ATTENDANCE_COLLECTION);
+      const q = query(attendanceRef, where('id', '==', id));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const attendanceDoc = querySnapshot.docs[0];
+        await deleteDoc(doc(db, ATTENDANCE_COLLECTION, attendanceDoc.id));
+        console.log('Attendance deleted');
+      }
+    } catch (error) {
+      console.error('Error deleting attendance:', error);
+      throw error;
+    }
   },
 
-  getAttendanceForStudent: (studentId: string): AttendanceRecord[] => {
-    const all = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    return all.filter(r => r.studentId === studentId).sort((a, b) => b.timestamp - a.timestamp);
+  getAttendanceForStudent: async (studentId: string): Promise<AttendanceRecord[]> => {
+    try {
+      const attendanceRef = collection(db, ATTENDANCE_COLLECTION);
+      // Note: Removed orderBy('timestamp') to avoid composite index requirement error
+      const q = query(attendanceRef, where('studentId', '==', studentId));
+      const querySnapshot = await getDocs(q);
+      const records = querySnapshot.docs.map(doc => doc.data() as AttendanceRecord);
+      
+      // Sort in-memory instead
+      return records.sort((a, b) => b.timestamp - a.timestamp);
+    } catch (error) {
+      console.error('Error getting student attendance:', error);
+      return [];
+    }
   },
 
-  getAttendanceForSession: (sessionId: string): AttendanceRecord[] => {
-    const all = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    return all.filter(r => r.sessionId === sessionId);
+  getAttendanceForSession: async (sessionId: string): Promise<AttendanceRecord[]> => {
+    try {
+      const attendanceRef = collection(db, ATTENDANCE_COLLECTION);
+      const q = query(attendanceRef, where('sessionId', '==', sessionId));
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => doc.data() as AttendanceRecord);
+    } catch (error) {
+      console.error('Error getting session attendance:', error);
+      return [];
+    }
   },
 
-  getAllAttendance: (): AttendanceRecord[] => {
-    const all = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    return all.sort((a, b) => b.timestamp - a.timestamp);
+  getAllAttendance: async (): Promise<AttendanceRecord[]> => {
+    try {
+      const attendanceRef = collection(db, ATTENDANCE_COLLECTION);
+      const q = query(attendanceRef, orderBy('timestamp', 'desc'));
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => doc.data() as AttendanceRecord);
+    } catch (error) {
+      console.error('Error getting all attendance:', error);
+      return [];
+    }
   },
   
-  getGlobalStats: () => {
-    const users = getFromStorage<User>(USERS_KEY);
-    const sessions = getFromStorage<ClassSession>(SESSIONS_KEY);
-    const attendance = getFromStorage<AttendanceRecord>(ATTENDANCE_KEY);
-    
-    return {
-      totalStudents: users.filter(u => u.role === UserRole.STUDENT).length,
-      totalFaculty: users.filter(u => u.role === UserRole.FACULTY).length,
-      totalSessions: sessions.length,
-      totalAttendance: attendance.length
-    };
+  getGlobalStats: async () => {
+    try {
+      const users = await storageService.getAllUsers();
+      const sessions = await storageService.getAllSessions();
+      const attendance = await storageService.getAllAttendance();
+      
+      return {
+        totalStudents: users.filter(u => u.role === UserRole.STUDENT).length,
+        totalFaculty: users.filter(u => u.role === UserRole.FACULTY).length,
+        totalSessions: sessions.length,
+        totalAttendance: attendance.length
+      };
+    } catch (error) {
+      console.error('Error getting global stats:', error);
+      return {
+        totalStudents: 0,
+        totalFaculty: 0,
+        totalSessions: 0,
+        totalAttendance: 0
+      };
+    }
   }
 };
