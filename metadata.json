@@ -1,0 +1,9 @@
+{
+  "name": "Smart Attendance",
+  "description": "A smart QR-based attendance management system with face verification, geolocation fencing, and dynamic QR codes.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
