@@ -413,6 +413,7 @@ const StudentDashboard: React.FC = () => {
                       playsInline={true}
                       onUserMediaError={handleCameraError}
                       onUserMedia={handleCameraLoad}
+                      mirrored={false}
                     />
 
                     {/* Camera Switch Button */}

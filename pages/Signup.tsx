@@ -271,6 +271,7 @@ const Signup: React.FC = () => {
                     screenshotFormat="image/jpeg"
                     className="w-full h-full object-cover"
                     videoConstraints={{ facingMode: "user" }}
+                    mirrored={false}
                   />
                 )}
                 
