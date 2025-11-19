@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -9,6 +9,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
 import { UserRole } from './types';
+import { auth, db } from './firebase';
+import { createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }: React.PropsWithChildren<{ allowedRoles?: UserRole[] }>) => {
@@ -29,6 +32,50 @@ const ProtectedRoute = ({ children, allowedRoles }: React.PropsWithChildren<{ al
 };
 
 const App: React.FC = () => {
+  useEffect(() => {
+    const registerForm = document.getElementById("registerForm");
+    if (registerForm) {
+      const handleSubmit = async (e: Event) => {
+        e.preventDefault();
+
+        const nameInput = document.getElementById("name") as HTMLInputElement;
+        const emailInput = document.getElementById("email") as HTMLInputElement;
+        const passwordInput = document.getElementById("password") as HTMLInputElement;
+
+        if (nameInput && emailInput && passwordInput) {
+          const name = nameInput.value;
+          const email = emailInput.value;
+          const password = passwordInput.value;
+
+          try {
+            // 1) Create user in Firebase Authentication
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
+
+            // 2) Store extra data in Firestore
+            await setDoc(doc(db, "users", user.uid), {
+              name: name,
+              email: email,
+              uid: user.uid,
+              role: "student",
+              createdAt: serverTimestamp()
+            });
+
+            alert("Registration Successful!");
+          } catch (err: any) {
+            alert("Error: " + err.message);
+          }
+        }
+      };
+
+      registerForm.addEventListener("submit", handleSubmit);
+      
+      return () => {
+        registerForm.removeEventListener("submit", handleSubmit);
+      };
+    }
+  }, []);
+
   return (
     <ThemeProvider>
       <AuthProvider>

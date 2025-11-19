@@ -1,21 +1,62 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { UserRole } from '../types';
 import { ShieldCheck, User, Lock, Eye, EyeOff, ArrowLeft, Sun, Moon } from 'lucide-react';
 import Button from '../components/Button';
+import { auth } from '../firebase';
+import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const { login } = useAuth();
+  const { login, signup } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Effect to handle external login form from index.html
+  useEffect(() => {
+    const loginForm = document.getElementById("loginForm");
+    if (loginForm) {
+      const handleExternalLogin = async (e: Event) => {
+        e.preventDefault();
+        const emailInput = document.getElementById("loginEmail") as HTMLInputElement;
+        const passInput = document.getElementById("loginPass") as HTMLInputElement;
+
+        if (emailInput && passInput) {
+          try {
+            const userCredential = await signInWithEmailAndPassword(auth, emailInput.value, passInput.value);
+            alert("Login successful!");
+            
+            // Sync with app context to allow access to protected routes
+            // We use signup here to effectively 'set' the user in the context and storage
+            signup({
+                uid: userCredential.user.uid,
+                email: userCredential.user.email || '',
+                name: userCredential.user.displayName || "Student User",
+                role: UserRole.STUDENT // Default role for external login
+            });
+
+            // Redirect to dashboard
+            navigate('/student');
+          } catch (err: any) {
+            alert("Error: " + err.message);
+          }
+        }
+      };
+
+      loginForm.addEventListener("submit", handleExternalLogin);
+      return () => {
+        loginForm.removeEventListener("submit", handleExternalLogin);
+      };
+    }
+  }, [navigate, signup]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
