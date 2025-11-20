@@ -1,4 +1,5 @@
 
+
 export enum UserRole {
   STUDENT = 'student',
   FACULTY = 'faculty',
@@ -57,4 +58,17 @@ export interface AttendanceRecord {
 export interface GeoLocation {
   lat: number;
   lng: number;
+}
+
+export interface AttendanceAlert {
+  id: string;
+  studentId: string;
+  studentName: string;
+  rollNo?: string;
+  department?: string;
+  type: 'critical' | 'warning';
+  message: string;
+  attendancePercentage: number;
+  missedSessions: number;
+  totalSessions: number;
 }

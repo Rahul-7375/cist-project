@@ -8,7 +8,8 @@ import { getCurrentLocation, calculateDistance } from '../../services/geoService
 import { TimetableEntry, ClassSession, User, UserRole, AttendanceRecord, GeoLocation } from '../../types';
 import { 
   LayoutDashboard, Calendar, Users, ClipboardCheck, User as UserIcon, LogOut, Trash2, 
-  Menu, X, Sun, Moon, Camera, CheckCircle, AlertTriangle, RefreshCw, MapPin, Play, StopCircle, Clock, Edit, XCircle, GripVertical
+  Menu, X, Sun, Moon, Camera, CheckCircle, AlertTriangle, RefreshCw, MapPin, Play, StopCircle, Clock, Edit, XCircle, GripVertical,
+  Search, ArrowUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/Button';
@@ -511,37 +512,160 @@ const TimetableManager: React.FC<{
     );
 };
 
-const StudentList: React.FC<{ students: User[] }> = ({ students }) => (
-    <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Registered Students</h3>
-        <div className="overflow-hidden">
-            <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
-                <thead className="bg-slate-50 dark:bg-slate-700/50 uppercase text-xs">
-                    <tr>
-                        <th className="px-4 py-3">Name</th>
-                        <th className="px-4 py-3">Roll No</th>
-                        <th className="px-4 py-3">Email</th>
-                        <th className="px-4 py-3">Department</th>
-                        <th className="px-4 py-3">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {students.map(s => (
-                        <tr key={s.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                            <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{s.name}</td>
-                            <td className="px-4 py-3 font-mono text-slate-500 dark:text-slate-400">{s.rollNo || '-'}</td>
-                            <td className="px-4 py-3">{s.email}</td>
-                            <td className="px-4 py-3">{s.department || '-'}</td>
-                            <td className="px-4 py-3">
-                                {s.faceDataUrl ? <span className="text-green-600 text-xs font-bold">Verified</span> : <span className="text-orange-500 text-xs">Pending</span>}
-                            </td>
+const StudentList: React.FC<{ students: User[] }> = ({ students }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const sortedStudents = useMemo(() => {
+        let sortableItems = [...students];
+        
+        // Filter
+        if (searchTerm) {
+            const lowerTerm = searchTerm.toLowerCase();
+            sortableItems = sortableItems.filter(student => 
+                student.name.toLowerCase().includes(lowerTerm) ||
+                (student.rollNo && student.rollNo.toLowerCase().includes(lowerTerm)) ||
+                student.email.toLowerCase().includes(lowerTerm) ||
+                (student.department && student.department.toLowerCase().includes(lowerTerm))
+            );
+        }
+
+        // Sort
+        if (sortConfig !== null) {
+            sortableItems.sort((a, b) => {
+                let aValue: any = a[sortConfig.key as keyof User];
+                let bValue: any = b[sortConfig.key as keyof User];
+
+                // Handle derived status
+                if (sortConfig.key === 'status') {
+                    aValue = !!a.faceDataUrl;
+                    bValue = !!b.faceDataUrl;
+                }
+
+                // Handle nulls/undefined
+                if (!aValue) aValue = '';
+                if (!bValue) bValue = '';
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'asc' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [students, searchTerm, sortConfig]);
+
+    const SortIcon = ({ columnKey }: { columnKey: string }) => {
+        if (sortConfig.key !== columnKey) return <ArrowUpDown size={14} className="text-slate-400 opacity-50 group-hover:opacity-100" />;
+        return sortConfig.direction === 'asc' 
+            ? <ChevronUp size={14} className="text-indigo-500" /> 
+            : <ChevronDown size={14} className="text-indigo-500" />;
+    };
+
+    return (
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-800/50">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <Users size={20} className="text-indigo-500"/> Registered Students
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                        Total: {sortedStudents.length} {searchTerm && `(filtered from ${students.length})`}
+                    </p>
+                </div>
+                
+                <div className="relative w-full sm:w-64">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Search className="h-4 w-4 text-slate-400" />
+                    </div>
+                    <input
+                        type="text"
+                        placeholder="Search name, roll no..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg leading-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                    />
+                </div>
+            </div>
+            
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
+                    <thead className="bg-slate-50 dark:bg-slate-700/50 uppercase text-xs font-semibold text-slate-500 dark:text-slate-400 border-b dark:border-slate-700">
+                        <tr>
+                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('name')}>
+                                <div className="flex items-center gap-2">Name <SortIcon columnKey="name"/></div>
+                            </th>
+                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('rollNo')}>
+                                <div className="flex items-center gap-2">Roll No <SortIcon columnKey="rollNo"/></div>
+                            </th>
+                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('email')}>
+                                <div className="flex items-center gap-2">Email <SortIcon columnKey="email"/></div>
+                            </th>
+                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('department')}>
+                                <div className="flex items-center gap-2">Department <SortIcon columnKey="department"/></div>
+                            </th>
+                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('status')}>
+                                <div className="flex items-center gap-2">Status <SortIcon columnKey="status"/></div>
+                            </th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {sortedStudents.length > 0 ? sortedStudents.map((s) => (
+                            <tr key={s.uid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold text-xs">
+                                            {s.name.charAt(0)}
+                                        </div>
+                                        <span className="font-medium text-slate-900 dark:text-white">{s.name}</span>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{s.rollNo || '-'}</td>
+                                <td className="px-6 py-4 break-all">{s.email}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                                        {s.department || 'General'}
+                                    </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    {s.faceDataUrl ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-100 dark:border-green-900/30">
+                                            <CheckCircle size={12} /> Verified
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border border-orange-100 dark:border-orange-900/30">
+                                            <AlertTriangle size={12} /> Pending
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        )) : (
+                            <tr>
+                                <td colSpan={5} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <Users size={32} className="opacity-20" />
+                                        <p>No students found matching your search.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const AttendanceReport: React.FC<{ attendance: AttendanceRecord[], students: User[] }> = ({ attendance, students }) => {
     return (
@@ -561,10 +685,10 @@ const AttendanceReport: React.FC<{ attendance: AttendanceRecord[], students: Use
                     <tbody>
                         {attendance.slice(0, 20).map(r => (
                             <tr key={r.id} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                <td className="px-4 py-3">{new Date(r.timestamp).toLocaleString()}</td>
-                                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{r.studentName}</td>
-                                <td className="px-4 py-3">{r.subject}</td>
-                                <td className="px-4 py-3">
+                                <td className="px-4 py-3 whitespace-nowrap">{new Date(r.timestamp).toLocaleString()}</td>
+                                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{r.studentName}</td>
+                                <td className="px-4 py-3 whitespace-nowrap">{r.subject}</td>
+                                <td className="px-4 py-3 whitespace-nowrap">
                                     <div className="flex gap-1">
                                         {r.verifiedByFace && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Face</span>}
                                         {r.verifiedByLocation && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">GPS</span>}
@@ -602,7 +726,7 @@ const FacultyProfile: React.FC<{ user: User, update: (u: User) => void }> = ({ u
                 </div>
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{user.name}</h2>
-                    <p className="text-slate-500 dark:text-slate-400">{user.email}</p>
+                    <p className="text-slate-500 dark:text-slate-400 break-all">{user.email}</p>
                     <span className="inline-block mt-2 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold uppercase rounded dark:bg-indigo-900/30 dark:text-indigo-300">Faculty</span>
                 </div>
             </div>
@@ -678,13 +802,16 @@ const FacultyDashboard: React.FC = () => {
                 storageService.getAllAttendance(),
                 storageService.getActiveSession(user.uid)
             ]);
+            
             setTimetable(t);
             setStudents(u.filter(user => user.role === UserRole.STUDENT));
             setAttendance(a.filter(rec => rec.subject === user.subject || t.some(e => e.subject === rec.subject)));
+            
             if (s) {
                 setActiveSession(s);
                 setInitialLocation(s.location);
             }
+            
         } catch (e) {
             console.error(e);
         }
@@ -849,7 +976,7 @@ const FacultyDashboard: React.FC = () => {
                             </p>
                             
                             {activeSession ? (
-                                <div className="flex gap-3 w-full max-w-sm">
+                                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
                                     <Button onClick={() => setShowFullScreenQR(true)} className="flex-1">
                                         <RefreshCw size={20} className="mr-2" /> Show QR
                                     </Button>

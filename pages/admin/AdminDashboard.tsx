@@ -1,27 +1,12 @@
 
 import React, { useEffect, useState } from 'react';
 import { storageService } from '../../services/storageService';
-import { AttendanceRecord, User, UserRole, ClassSession } from '../../types';
+import { analysisService } from '../../services/analysisService';
+import { AttendanceRecord, User, UserRole, ClassSession, AttendanceAlert } from '../../types';
 import { Download, Users, FileText, CheckSquare, Search, Trash2, Edit, Save, X, Briefcase, BookOpen, BarChart3, Calendar, Filter, AlertTriangle, Hash } from 'lucide-react';
 import Button from '../../components/Button';
-
-const DEPARTMENTS = [
-  "Computer Science and Engineering",
-  "CSE-DS",
-  "CSE-AIML",
-  "Civil Engineering",
-  "Electronics and Communications Engineering",
-  "Mechanical Engineering"
-];
-
-const SUBJECTS_BY_DEPT: Record<string, string[]> = {
-  "Computer Science and Engineering": ["Data Structures", "Algorithms", "Database Systems", "Operating Systems", "Computer Networks"],
-  "CSE-DS": ["ATCD", "PA", "WSMA", "NLP", "WSMA-LAB", "PA-LAB", "I&EE"],
-  "CSE-AIML": ["Artificial Intelligence", "Deep Learning", "Neural Networks", "Natural Language Processing", "Computer Vision"],
-  "Civil Engineering": ["Structural Analysis", "Geotechnical Engineering", "Surveying", "Construction Mgmt"],
-  "Electronics and Communications Engineering": ["Digital Electronics", "Signals & Systems", "Microprocessors", "VLSI Design", "Communication Systems"],
-  "Mechanical Engineering": ["Thermodynamics", "Fluid Mechanics", "Strength of Materials", "Machine Design"]
-};
+import AlertsPanel from '../../components/AlertsPanel';
+import { DEPARTMENTS, SUBJECTS_BY_DEPT } from '../../utils/constants';
 
 interface StudentReport {
   student: User;
@@ -37,6 +22,7 @@ const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [stats, setStats] = useState({ totalStudents: 0, totalFaculty: 0, totalSessions: 0, totalAttendance: 0 });
+  const [alerts, setAlerts] = useState<AttendanceAlert[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Edit User State
@@ -80,6 +66,10 @@ const AdminDashboard: React.FC = () => {
     setUsers(allUsers);
     setSessions(allSessions);
     setStats(globalStats);
+
+    // Calculate Alerts
+    const newAlerts = analysisService.generateAlerts(allUsers, allSessions, allRecords);
+    setAlerts(newAlerts);
   };
 
   const generateReports = () => {
@@ -88,30 +78,17 @@ const AdminDashboard: React.FC = () => {
     const start = new Date(reportStartDate).getTime();
     const end = new Date(reportEndDate).getTime() + 86400000; // End of day
 
-    // 1. Filter Sessions by Date and Department (if applicable)
-    // Note: In a real app, we'd link sessions to departments more explicitly. 
-    // Here we infer relevant sessions based on the department filter or include all.
     const relevantSessions = sessions.filter(s => {
       const matchesDate = s.startTime >= start && s.startTime <= end;
-      // If a department is selected, we should strictly only count sessions that belong to that department's subjects
-      // However, for simplicity in this mock, if a Dept is selected, we only filter Students by that dept.
-      // The sessions are counted per subject later.
       return matchesDate;
     });
 
-    // 2. Filter Students
     const targetStudents = users.filter(u => 
       u.role === UserRole.STUDENT && 
       (!reportDept || u.department === reportDept)
     );
 
-    // 3. Build Report
     const reports: StudentReport[] = targetStudents.map(student => {
-      // Determine sessions relevant to this student (based on their department subjects ideally, 
-      // but here we'll assume all sessions are relevant or match by subject name if structured)
-      
-      // Better Logic: A student is expected to attend sessions that match their department subjects
-      // If department is not set on student, assume all sessions are relevant (simplified)
       const studentSubjects = student.department ? SUBJECTS_BY_DEPT[student.department] || [] : [];
       
       const studentRelevantSessions = relevantSessions.filter(s => 
@@ -121,7 +98,6 @@ const AdminDashboard: React.FC = () => {
       const subjectStats: Record<string, { total: number; present: number; percentage: number }> = {};
       let totalPresent = 0;
 
-      // Initialize subjects
       studentRelevantSessions.forEach(s => {
         if (!subjectStats[s.subject]) {
           subjectStats[s.subject] = { total: 0, present: 0, percentage: 0 };
@@ -129,11 +105,8 @@ const AdminDashboard: React.FC = () => {
         subjectStats[s.subject].total += 1;
       });
 
-      // Count attendance
       records.forEach(r => {
         if (r.studentId === student.uid && r.timestamp >= start && r.timestamp <= end) {
-          // Check if this attendance corresponds to a relevant session
-          // (In a real DB we match by session ID. Here we do the same)
           const session = studentRelevantSessions.find(s => s.id === r.sessionId);
           if (session) {
             totalPresent++;
@@ -144,7 +117,6 @@ const AdminDashboard: React.FC = () => {
         }
       });
 
-      // Calculate percentages
       Object.keys(subjectStats).forEach(subj => {
         const data = subjectStats[subj];
         data.percentage = data.total > 0 ? Math.round((data.present / data.total) * 100) : 0;
@@ -164,7 +136,6 @@ const AdminDashboard: React.FC = () => {
       };
     });
 
-    // Sort by lowest attendance first for visibility
     setGeneratedReports(reports.sort((a, b) => a.overallPercentage - b.overallPercentage));
   };
 
@@ -235,6 +206,11 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 relative">
+      {/* Header with Alerts */}
+      <div className="flex justify-end mb-2">
+          <AlertsPanel alerts={alerts} />
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors duration-200">
@@ -284,10 +260,10 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex space-x-1 bg-slate-200 dark:bg-slate-700 p-1 rounded-lg max-w-2xl transition-colors duration-200">
+      <div className="flex space-x-1 bg-slate-200 dark:bg-slate-700 p-1 rounded-lg max-w-2xl transition-colors duration-200 overflow-x-auto">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
             activeTab === 'overview' ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600/50'
           }`}
         >
@@ -295,7 +271,7 @@ const AdminDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('attendance')}
-          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
             activeTab === 'attendance' ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600/50'
           }`}
         >
@@ -303,7 +279,7 @@ const AdminDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('users')}
-          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
             activeTab === 'users' ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600/50'
           }`}
         >
@@ -311,7 +287,7 @@ const AdminDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('reports')}
-          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
             activeTab === 'reports' ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600/50'
           }`}
         >
@@ -342,17 +318,17 @@ const AdminDashboard: React.FC = () => {
               <tbody>
                 {records.slice(0, 10).map((record) => (
                   <tr key={record.id} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="px-6 py-4">{new Date(record.timestamp).toLocaleString()}</td>
-                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{record.studentName}</td>
-                    <td className="px-6 py-4">{record.subject}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">{new Date(record.timestamp).toLocaleString()}</td>
+                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">{record.studentName}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{record.subject}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                        <div className="flex gap-2">
                          {record.verifiedByFace && <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-1 rounded border border-blue-100 dark:border-blue-900/50">Face</span>}
                          {record.verifiedByLocation && <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-1 rounded border border-purple-100 dark:border-purple-900/50">GPS</span>}
                          {!record.verifiedByFace && !record.verifiedByLocation && <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded">Manual</span>}
                        </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-xs font-bold">Present</span>
                     </td>
                   </tr>
@@ -420,10 +396,10 @@ const AdminDashboard: React.FC = () => {
                  <tbody>
                     {records.map((record) => (
                       <tr key={record.id} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 group transition-colors">
-                        <td className="px-6 py-3">{new Date(record.timestamp).toLocaleDateString()} {new Date(record.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                        <td className="px-6 py-3 font-medium text-slate-900 dark:text-white">{record.studentName}</td>
-                        <td className="px-6 py-3">{record.subject}</td>
-                        <td className="px-6 py-3">
+                        <td className="px-6 py-3 whitespace-nowrap">{new Date(record.timestamp).toLocaleDateString()} {new Date(record.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                        <td className="px-6 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{record.studentName}</td>
+                        <td className="px-6 py-3 whitespace-nowrap">{record.subject}</td>
+                        <td className="px-6 py-3 whitespace-nowrap">
                            <button 
                              onClick={() => handleDeleteAttendance(record.id)}
                              className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
@@ -457,77 +433,79 @@ const AdminDashboard: React.FC = () => {
                />
              </div>
            </div>
-           <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
-             <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 uppercase text-xs">
-               <tr>
-                 <th className="px-6 py-3">User Details</th>
-                 <th className="px-6 py-3">Role</th>
-                 <th className="px-6 py-3">Department</th>
-                 <th className="px-6 py-3">Face ID</th>
-                 <th className="px-6 py-3 text-right">Actions</th>
-               </tr>
-             </thead>
-             <tbody>
-               {filteredUsers.map(user => (
-                 <tr key={user.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                   <td className="px-6 py-4">
-                     <div className="flex items-center gap-3">
-                       <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold">
-                         {user.name.charAt(0)}
-                       </div>
-                       <div>
-                         <div className="font-medium text-slate-900 dark:text-white">{user.name}</div>
-                         <div className="text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
-                         {user.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono">{user.rollNo}</div>}
-                       </div>
-                     </div>
-                   </td>
-                   <td className="px-6 py-4">
-                     <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                       user.role === UserRole.ADMIN ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                       user.role === UserRole.FACULTY ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' :
-                       'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                     }`}>
-                       {user.role}
-                     </span>
-                   </td>
-                   <td className="px-6 py-4">
-                     <div className="flex flex-col">
-                       <span className="text-slate-700 dark:text-slate-300">{user.department || '-'}</span>
-                       {user.subject && <span className="text-xs text-slate-500 dark:text-slate-400">{user.subject}</span>}
-                     </div>
-                   </td>
-                   <td className="px-6 py-4">
-                     {user.faceDataUrl ? (
-                       <span className="flex items-center text-green-600 dark:text-green-400 text-xs font-medium"><CheckSquare className="w-3 h-3 mr-1"/> Registered</span>
-                     ) : (
-                       <span className="text-slate-400 dark:text-slate-500 text-xs">Not set</span>
-                     )}
-                   </td>
-                   <td className="px-6 py-4 text-right">
-                     <div className="flex items-center justify-end gap-2">
-                       <button 
-                         onClick={() => setEditingUser(user)}
-                         className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
-                         title="Edit User"
-                       >
-                         <Edit size={16} />
-                       </button>
-                       {user.role !== UserRole.ADMIN && (
-                         <button 
-                           onClick={() => handleDeleteUser(user.uid)}
-                           className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                           title="Delete User"
-                         >
-                           <Trash2 size={16} />
-                         </button>
-                       )}
-                     </div>
-                   </td>
+           <div className="overflow-x-auto">
+             <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
+               <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 uppercase text-xs">
+                 <tr>
+                   <th className="px-6 py-3">User Details</th>
+                   <th className="px-6 py-3">Role</th>
+                   <th className="px-6 py-3">Department</th>
+                   <th className="px-6 py-3">Face ID</th>
+                   <th className="px-6 py-3 text-right">Actions</th>
                  </tr>
-               ))}
-             </tbody>
-           </table>
+               </thead>
+               <tbody>
+                 {filteredUsers.map(user => (
+                   <tr key={user.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                     <td className="px-6 py-4">
+                       <div className="flex items-center gap-3">
+                         <div className="w-8 h-8 flex-shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold">
+                           {user.name.charAt(0)}
+                         </div>
+                         <div className="min-w-0">
+                           <div className="font-medium text-slate-900 dark:text-white whitespace-nowrap">{user.name}</div>
+                           <div className="text-xs text-slate-500 dark:text-slate-400 break-all">{user.email}</div>
+                           {user.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono break-all">{user.rollNo}</div>}
+                         </div>
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                         user.role === UserRole.ADMIN ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
+                         user.role === UserRole.FACULTY ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' :
+                         'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                       }`}>
+                         {user.role}
+                       </span>
+                     </td>
+                     <td className="px-6 py-4">
+                       <div className="flex flex-col">
+                         <span className="text-slate-700 dark:text-slate-300 whitespace-nowrap">{user.department || '-'}</span>
+                         {user.subject && <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{user.subject}</span>}
+                       </div>
+                     </td>
+                     <td className="px-6 py-4 whitespace-nowrap">
+                       {user.faceDataUrl ? (
+                         <span className="flex items-center text-green-600 dark:text-green-400 text-xs font-medium"><CheckSquare className="w-3 h-3 mr-1"/> Registered</span>
+                       ) : (
+                         <span className="text-slate-400 dark:text-slate-500 text-xs">Not set</span>
+                       )}
+                     </td>
+                     <td className="px-6 py-4 text-right whitespace-nowrap">
+                       <div className="flex items-center justify-end gap-2">
+                         <button 
+                           onClick={() => setEditingUser(user)}
+                           className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                           title="Edit User"
+                         >
+                           <Edit size={16} />
+                         </button>
+                         {user.role !== UserRole.ADMIN && (
+                           <button 
+                             onClick={() => handleDeleteUser(user.uid)}
+                             className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                             title="Delete User"
+                           >
+                             <Trash2 size={16} />
+                           </button>
+                         )}
+                       </div>
+                     </td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
         </div>
       )}
 
@@ -639,13 +617,13 @@ const AdminDashboard: React.FC = () => {
                     <tr key={report.student.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                         {report.student.name}
-                        <div className="text-xs text-slate-500 dark:text-slate-400 font-normal">{report.student.email}</div>
-                        {report.student.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono">{report.student.rollNo}</div>}
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-normal break-all">{report.student.email}</div>
+                        {report.student.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono break-all">{report.student.rollNo}</div>}
                       </td>
-                      <td className="px-6 py-4">{report.student.department || '-'}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 whitespace-nowrap">{report.student.department || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-3">
-                          <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden min-w-[100px]">
                             <div 
                               className={`h-full rounded-full ${
                                 report.overallPercentage < 75 ? 'bg-red-500' : 
