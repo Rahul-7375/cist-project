@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
 import { calculateDistance, getCurrentLocation } from '../../services/geoService';
 import { AttendanceRecord, TimetableEntry } from '../../types';
-import { Scan, CheckCircle, XCircle, Camera, User as UserIcon, Briefcase, History, Calendar, Shield, SwitchCamera, Clock, Timer, AlertTriangle, ScanFace, Fingerprint, MapPin, Loader2 } from 'lucide-react';
+import { Scan, CheckCircle, XCircle, Camera, User as UserIcon, Briefcase, History, Calendar, Shield, SwitchCamera, Clock, Timer, AlertTriangle, ScanFace, Fingerprint, MapPin, Loader2, RefreshCw } from 'lucide-react';
 import Button from '../../components/Button';
 
 const SUBJECTS_BY_DEPT: Record<string, string[]> = {
@@ -20,10 +20,9 @@ const SUBJECTS_BY_DEPT: Record<string, string[]> = {
 };
 
 const SCAN_TIMEOUT_DURATION = 45; // seconds
-// Max pixel difference allowed (0-255 scale). 
-// Increased to 85 to allow for minor lighting/position variations while maintaining security.
-const FACE_MATCH_THRESHOLD = 85; 
-const MAX_DISTANCE_METERS = 100;
+// Relaxed threshold to allow for lighting variations and minor movements
+const FACE_MATCH_THRESHOLD = 115; 
+const MAX_DISTANCE_METERS = 300; 
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -197,53 +196,90 @@ const StudentDashboard: React.FC = () => {
         loaded++;
         if (loaded < 2) return;
 
-        // Downscale significantly to 64x64 for comparison to reduce sensitivity to noise/movement
-        const width = 64;
+        const width = 64; // Small grid to ignore high-freq noise
         const height = 64;
         
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         
         if (!ctx) {
           resolve({ match: false, score: 255 });
           return;
         }
 
-        // Process Image 1 (Stored)
-        ctx.drawImage(img1, 0, 0, width, height);
-        const data1 = ctx.getImageData(0, 0, width, height).data;
+        // Helper: Get grayscale pixel data and average brightness
+        const getMetrics = (img: HTMLImageElement | HTMLCanvasElement, flip = false) => {
+            ctx.clearRect(0, 0, width, height);
+            ctx.save();
+            if (flip) {
+                ctx.translate(width, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+            ctx.restore();
+            
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            const gray = new Uint8Array(width * height);
+            let totalBrightness = 0;
+            
+            for (let i = 0; i < width * height; i++) {
+                // Standard Luminance
+                const val = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+                gray[i] = val;
+                totalBrightness += val;
+            }
+            
+            return { 
+                pixels: gray, 
+                avgBrightness: totalBrightness / (width * height) 
+            };
+        };
 
-        // Process Image 2 (Captured)
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(img2, 0, 0, width, height);
-        const data2 = ctx.getImageData(0, 0, width, height).data;
+        // 1. Process Reference Image
+        const refData = getMetrics(img1);
+        
+        // 2. Process Target Image (Normal)
+        const targetDataNormal = getMetrics(img2, false);
+        
+        // 3. Process Target Image (Mirrored) - Handles selfie camera differences
+        const targetDataMirrored = getMetrics(img2, true);
 
-        let totalDiff = 0;
-        const pixels = width * height;
+        // Comparison Function with Brightness Normalization
+        const calculateDiff = (ref: typeof refData, target: typeof refData) => {
+             const brightnessShift = ref.avgBrightness - target.avgBrightness;
+             let totalDiff = 0;
+             
+             for(let i = 0; i < ref.pixels.length; i++) {
+                 // Adjust target pixel brightness to match reference
+                 let adjustedVal = target.pixels[i] + brightnessShift;
+                 // Clamp to 0-255
+                 adjustedVal = Math.max(0, Math.min(255, adjustedVal));
+                 
+                 totalDiff += Math.abs(ref.pixels[i] - adjustedVal);
+             }
+             return totalDiff / ref.pixels.length;
+        };
 
-        // Loop through pixels
-        for (let i = 0; i < data1.length; i += 4) {
-          // Convert to Grayscale: 0.299R + 0.587G + 0.114B
-          const gray1 = 0.299 * data1[i] + 0.587 * data1[i + 1] + 0.114 * data1[i + 2];
-          const gray2 = 0.299 * data2[i] + 0.587 * data2[i + 1] + 0.114 * data2[i + 2];
-          
-          totalDiff += Math.abs(gray1 - gray2);
-        }
-
-        const avgPixelDiff = totalDiff / pixels;
-        console.log("Face Compare Score:", avgPixelDiff);
+        const scoreNormal = calculateDiff(refData, targetDataNormal);
+        const scoreMirrored = calculateDiff(refData, targetDataMirrored);
+        
+        // Take the better match
+        const bestScore = Math.min(scoreNormal, scoreMirrored);
+        
+        console.log(`Face Match - Normal: ${scoreNormal.toFixed(1)}, Mirrored: ${scoreMirrored.toFixed(1)}, Threshold: ${FACE_MATCH_THRESHOLD}`);
         
         resolve({ 
-            match: avgPixelDiff <= FACE_MATCH_THRESHOLD,
-            score: avgPixelDiff
+            match: bestScore <= FACE_MATCH_THRESHOLD,
+            score: bestScore
         });
       };
 
-      // Avoid setting crossOrigin for Data URLs to prevent potential taint issues in some browsers
-      if (!src1.startsWith('data:')) img1.crossOrigin = "Anonymous";
-      if (!src2.startsWith('data:')) img2.crossOrigin = "Anonymous";
+      // Handle Cross Origin for data URLs
+      img1.crossOrigin = "Anonymous";
+      img2.crossOrigin = "Anonymous";
       
       img1.onload = onLoaded;
       img2.onload = onLoaded;
@@ -261,61 +297,67 @@ const StudentDashboard: React.FC = () => {
     try {
       const imageSrc = webcamRef.current.getScreenshot();
       if (!imageSrc) {
-        setStatusMessage("Could not capture face. Try again.");
+        setStatusMessage("Could not capture frame. Please allow camera access.");
+        setScanStep('error');
         return;
       }
 
       setScanStep('processing');
+      setAnalysisProgress(0);
       
-      // Simulate progressive analysis
-      let progress = 0;
-      const progressInterval = setInterval(() => {
-          progress += 5;
-          if (progress > 90) progress = 90;
-          setAnalysisProgress(progress);
-      }, 50);
+      // Simulate analysis steps for UX
+      const updateProgress = (val: number) => setAnalysisProgress(val);
 
-      // Artificial delay to allow UI to show "Processing" state
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 1. Start Analysis
+      updateProgress(10);
+      setStatusMessage("Analyzing biometric data...");
+      await new Promise(r => setTimeout(r, 600)); // Small UX delay
 
-      setStatusMessage("Biometric Analysis...");
-
-      // 1. Verify Face
+      // 2. Verify Face
+      updateProgress(30);
       if (!user.faceDataUrl) {
-         clearInterval(progressInterval);
-         throw new Error("No profile photo registered. Please update profile.");
+         throw new Error("Profile photo missing. Please update your profile.");
       }
 
       const faceResult = await compareImages(user.faceDataUrl, imageSrc);
       
       if (!faceResult.match) {
-         clearInterval(progressInterval);
-         throw new Error(`Face Verification Failed. (Match Score: ${Math.floor(faceResult.score)}). Please ensure good lighting.`);
+         updateProgress(0);
+         // Provide helpful error based on score
+         const msg = faceResult.score > 150 
+            ? "Face not recognized. Please ensure good lighting." 
+            : "Verification failed. Look straight at the camera and try again.";
+         throw new Error(msg);
       }
 
-      setStatusMessage("Checking Geolocation...");
+      // 3. Verify Location
+      updateProgress(70);
+      setStatusMessage("Verifying geolocation...");
       
-      // 2. Verify Location
       const currentLocation = await getCurrentLocation();
       const session = await storageService.getSessionById(scannedSessionId);
       
       let verifiedByLocation = false;
       let distance = 0;
 
-      if (session && session.location) {
+      if (session && session.location && session.location.lat !== 0) {
         distance = calculateDistance(currentLocation, session.location);
+        if (isNaN(distance)) distance = 0;
         verifiedByLocation = distance <= MAX_DISTANCE_METERS;
+        console.log(`Location Check: Dist ${distance.toFixed(1)}m, Max ${MAX_DISTANCE_METERS}m`);
       } else {
-         // Fallback for sessions without location data
-         verifiedByLocation = true;
+         verifiedByLocation = true; 
       }
 
-      if (!verifiedByLocation && session?.location?.lat !== 0) {
-         clearInterval(progressInterval);
-         throw new Error(`Location Verification Failed. You are ${Math.round(distance)}m away from class.`);
+      if (!verifiedByLocation) {
+         updateProgress(0);
+         throw new Error(`Location mismatch. You are ${Math.round(distance)}m away from class (Max ${MAX_DISTANCE_METERS}m).`);
       }
 
-      // 3. Mark Attendance
+      // 4. Mark Attendance
+      updateProgress(90);
+      setStatusMessage("Finalizing attendance...");
+      
       const record: AttendanceRecord = {
         id: Date.now().toString(),
         sessionId: scannedSessionId,
@@ -330,22 +372,20 @@ const StudentDashboard: React.FC = () => {
 
       const success = await storageService.markAttendance(record);
       
-      clearInterval(progressInterval);
-      setAnalysisProgress(100);
-
       if (success) {
+        updateProgress(100);
         setScanStep('success');
-        setStatusMessage("Attendance Marked Successfully!");
+        setStatusMessage("Attendance Marked");
         setAttendanceHistory(prev => [record, ...prev]);
       } else {
         setScanStep('error');
-        setStatusMessage("Attendance already marked for this session.");
+        setStatusMessage("Attendance has already been marked for this session.");
       }
 
     } catch (err: any) {
-      console.error(err);
+      console.error("Verification Error:", err);
       setScanStep('error');
-      setStatusMessage(err.message || "Verification failed.");
+      setStatusMessage(err.message || "Verification failed. Please try again.");
     }
   }, [scannedSessionId, user]);
 
@@ -355,6 +395,15 @@ const StudentDashboard: React.FC = () => {
     }));
   };
 
+  const resetScanner = () => {
+      setScanStep('qr');
+      setTimeLeft(SCAN_TIMEOUT_DURATION);
+      setAnalysisProgress(0);
+      setScanning(true);
+      setScannedSessionId(null);
+      setScannedSubject(null);
+  };
+
   if (!user) return <div>Loading...</div>;
 
   return (
@@ -362,16 +411,21 @@ const StudentDashboard: React.FC = () => {
       
       {/* ACTIVE SCANNER UI */}
       {scanning && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in fade-in duration-300">
             {/* Scanner Header */}
-            <div className="p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent absolute top-0 w-full z-30 text-white">
-                <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
-                    {scanStep === 'qr' ? <Scan size={18} className="text-indigo-400" /> : <ScanFace size={18} className="text-indigo-400" />}
+            <div className="p-4 flex justify-between items-center bg-gradient-to-b from-black/90 to-transparent absolute top-0 w-full z-30 text-white">
+                <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-lg">
+                    {scanStep === 'qr' ? <Scan size={18} className="text-indigo-400" /> : 
+                     scanStep === 'success' ? <CheckCircle size={18} className="text-green-400" /> :
+                     scanStep === 'error' ? <AlertTriangle size={18} className="text-red-400" /> :
+                     <ScanFace size={18} className="text-indigo-400" />}
                     <span className="font-mono font-bold text-sm tracking-wider">
-                        {scanStep === 'qr' ? 'QR SCAN' : scanStep === 'face' || scanStep === 'processing' ? 'FACE ID' : 'STATUS'}
+                        {scanStep === 'qr' ? 'QR SCAN' : 
+                         scanStep === 'success' ? 'COMPLETE' :
+                         scanStep === 'error' ? 'ERROR' : 'BIOMETRIC'}
                     </span>
                 </div>
-                <button onClick={stopScanning} className="p-2 bg-black/40 backdrop-blur-md border border-white/10 rounded-full hover:bg-white/20 transition-colors">
+                <button onClick={stopScanning} className="p-2 bg-black/40 backdrop-blur-md border border-white/10 rounded-full hover:bg-white/20 transition-colors shadow-lg">
                     <XCircle size={24} className="text-white/80" />
                 </button>
             </div>
@@ -385,35 +439,71 @@ const StudentDashboard: React.FC = () => {
                     videoConstraints={videoConstraints}
                     className="absolute inset-0 w-full h-full object-cover opacity-90"
                     mirrored={videoConstraints.facingMode === "user"}
+                    screenshotQuality={0.9}
                 />
                 
                 {/* Grid Overlay */}
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
+
+                {/* Success Overlay */}
+                {scanStep === 'success' && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm animate-in zoom-in duration-300">
+                        <div className="w-24 h-24 bg-green-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(34,197,94,0.5)] mb-6 animate-bounce">
+                            <CheckCircle size={48} className="text-white" />
+                        </div>
+                        <h2 className="text-3xl font-bold text-white tracking-tight">Attendance Marked</h2>
+                        <p className="text-indigo-200 mt-2 text-lg font-medium">{scannedSubject}</p>
+                        <div className="mt-8">
+                            <Button onClick={stopScanning} className="px-8 py-3 rounded-full bg-white text-green-700 hover:bg-green-50 font-bold shadow-xl">
+                                Done
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Error Overlay */}
+                {scanStep === 'error' && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm animate-in zoom-in duration-300">
+                        <div className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(239,68,68,0.5)] mb-6">
+                            <XCircle size={48} className="text-white" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white tracking-tight">Verification Failed</h2>
+                        <p className="text-red-200 mt-2 text-center px-6 max-w-md">{statusMessage}</p>
+                        <div className="mt-8 flex gap-4">
+                            <Button onClick={stopScanning} variant="secondary" className="bg-white/10 text-white hover:bg-white/20 border-0">
+                                Cancel
+                            </Button>
+                            <Button onClick={resetScanner} className="bg-white text-red-600 hover:bg-red-50">
+                                Try Again
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
                 {/* QR Scanning Overlay */}
                 {scanStep === 'qr' && (
                     <>
-                        <div className="absolute inset-0 bg-black/40 z-10" />
+                        <div className="absolute inset-0 bg-black/50 z-10" />
                         <div className="relative z-20 w-72 h-72">
                              {/* Corner Brackets */}
-                             <div className="absolute top-0 left-0 w-12 h-12 border-t-[4px] border-l-[4px] border-indigo-500 rounded-tl-2xl" />
-                             <div className="absolute top-0 right-0 w-12 h-12 border-t-[4px] border-r-[4px] border-indigo-500 rounded-tr-2xl" />
-                             <div className="absolute bottom-0 left-0 w-12 h-12 border-b-[4px] border-l-[4px] border-indigo-500 rounded-bl-2xl" />
-                             <div className="absolute bottom-0 right-0 w-12 h-12 border-b-[4px] border-r-[4px] border-indigo-500 rounded-br-2xl" />
+                             <div className="absolute top-0 left-0 w-12 h-12 border-t-[4px] border-l-[4px] border-indigo-500 rounded-tl-2xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+                             <div className="absolute top-0 right-0 w-12 h-12 border-t-[4px] border-r-[4px] border-indigo-500 rounded-tr-2xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+                             <div className="absolute bottom-0 left-0 w-12 h-12 border-b-[4px] border-l-[4px] border-indigo-500 rounded-bl-2xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+                             <div className="absolute bottom-0 right-0 w-12 h-12 border-b-[4px] border-r-[4px] border-indigo-500 rounded-br-2xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
                              
                              {/* Scan Line */}
-                             <div className="absolute top-0 left-0 w-full h-0.5 bg-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.8)] animate-scan opacity-80"></div>
+                             <div className="absolute top-0 left-0 w-full h-0.5 bg-indigo-400 shadow-[0_0_30px_rgba(99,102,241,1)] animate-scan opacity-90"></div>
                              
                              {/* Center Target */}
-                             <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-16 h-1 border border-indigo-500/30"></div>
-                                <div className="h-16 w-1 border border-indigo-500/30 absolute"></div>
+                             <div className="absolute inset-0 flex items-center justify-center opacity-50">
+                                <div className="w-12 h-0.5 bg-indigo-400/50"></div>
+                                <div className="h-12 w-0.5 bg-indigo-400/50 absolute"></div>
                              </div>
                         </div>
 
                         {/* Timer Badge */}
                         <div className="absolute top-24 left-0 right-0 z-20 flex justify-center">
-                             <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full backdrop-blur-md border ${timeLeft < 10 ? 'bg-red-500/20 border-red-500 text-red-200' : 'bg-indigo-900/40 border-indigo-500/50 text-indigo-100'}`}>
+                             <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full backdrop-blur-md border shadow-lg transition-all ${timeLeft < 10 ? 'bg-red-500/30 border-red-500 text-red-100' : 'bg-indigo-900/50 border-indigo-500/50 text-indigo-100'}`}>
                                 <Timer size={14} className={timeLeft < 10 ? 'animate-pulse' : ''} />
                                 <span className="font-mono font-bold">{timeLeft}s</span>
                              </div>
@@ -423,67 +513,81 @@ const StudentDashboard: React.FC = () => {
 
                 {/* Face Verification Overlay */}
                 {(scanStep === 'face' || scanStep === 'processing') && (
-                     <div className="relative z-20 flex flex-col items-center w-full h-full justify-center bg-black/30 backdrop-blur-[2px]">
+                     <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-b from-black/60 via-transparent to-black/60">
                          
                          {/* Face Guide Silhouette */}
-                         <div className="relative">
+                         <div className="relative group">
                              {/* Outer Glow Ring */}
-                             <div className={`w-72 h-96 border-[3px] rounded-[50%] transition-all duration-500 relative overflow-hidden
-                                ${scanStep === 'processing' ? 'border-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.4)]' : 'border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.4)]'}
+                             <div className={`w-72 h-96 border-[3px] rounded-[50%] transition-all duration-500 relative overflow-hidden backdrop-blur-[2px]
+                                ${scanStep === 'processing' 
+                                    ? 'border-yellow-400 shadow-[0_0_50px_rgba(250,204,21,0.3)]' 
+                                    : 'border-indigo-500 shadow-[0_0_50px_rgba(99,102,241,0.3)]'}
                              `}>
                                 {/* Scanning Gradient Beam */}
-                                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-indigo-500/20 to-transparent h-1/2 w-full animate-scan"></div>
+                                <div className={`absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent h-1/3 w-full animate-scan ${scanStep === 'processing' ? 'duration-700' : 'duration-1000'}`}></div>
+                                
+                                {/* Grid Pattern inside oval */}
+                                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px] opacity-30"></div>
                              </div>
                              
-                             {/* Side Tech Accents */}
-                             <div className="absolute top-1/2 -left-8 -translate-y-1/2 flex flex-col gap-1">
-                                 <div className="w-4 h-1 bg-indigo-500/50"></div>
-                                 <div className="w-6 h-1 bg-indigo-500"></div>
-                                 <div className="w-4 h-1 bg-indigo-500/50"></div>
+                             {/* Tech Accents */}
+                             <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/60 border border-indigo-500/30 rounded-full text-[10px] font-mono text-indigo-300 backdrop-blur-md">
+                                 FACE_ID_VERIFY
                              </div>
-                             <div className="absolute top-1/2 -right-8 -translate-y-1/2 flex flex-col gap-1 items-end">
-                                 <div className="w-4 h-1 bg-indigo-500/50"></div>
-                                 <div className="w-6 h-1 bg-indigo-500"></div>
-                                 <div className="w-4 h-1 bg-indigo-500/50"></div>
+                             
+                             <div className="absolute top-1/2 -left-6 -translate-y-1/2 flex flex-col gap-1.5">
+                                 <div className={`w-3 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse' : 'bg-indigo-500'}`}></div>
+                                 <div className={`w-5 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse delay-75' : 'bg-indigo-500'}`}></div>
+                                 <div className={`w-3 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse delay-150' : 'bg-indigo-500'}`}></div>
+                             </div>
+                             <div className="absolute top-1/2 -right-6 -translate-y-1/2 flex flex-col gap-1.5 items-end">
+                                 <div className={`w-3 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse' : 'bg-indigo-500'}`}></div>
+                                 <div className={`w-5 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse delay-75' : 'bg-indigo-500'}`}></div>
+                                 <div className={`w-3 h-1 ${scanStep === 'processing' ? 'bg-yellow-500 animate-pulse delay-150' : 'bg-indigo-500'}`}></div>
                              </div>
                          </div>
 
                          {/* Status Text */}
-                         <div className="mt-8 flex flex-col items-center">
+                         <div className="mt-10 flex flex-col items-center">
                              {scanStep === 'processing' ? (
-                                 <div className="flex flex-col items-center">
-                                     <div className="flex items-center gap-2 text-yellow-400 font-mono text-lg font-bold animate-pulse">
-                                         <Loader2 className="animate-spin" /> ANALYZING BIOMETRICS
+                                 <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4">
+                                     <div className="flex items-center gap-2 text-yellow-400 font-mono text-lg font-bold">
+                                         <Loader2 className="animate-spin" /> 
+                                         {analysisProgress < 30 ? 'CAPTURING...' : analysisProgress < 60 ? 'COMPARING...' : 'VERIFYING LOC...'}
                                      </div>
                                      {/* Progress Bar */}
-                                     <div className="w-64 h-2 bg-slate-700 rounded-full mt-3 overflow-hidden border border-slate-600">
+                                     <div className="w-64 h-1.5 bg-slate-800 rounded-full mt-4 overflow-hidden border border-slate-700">
                                          <div 
-                                            className="h-full bg-yellow-400 transition-all duration-75 ease-out"
+                                            className="h-full bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.8)] transition-all duration-300 ease-out"
                                             style={{ width: `${analysisProgress}%` }}
                                          ></div>
                                      </div>
-                                     <p className="text-slate-300 text-xs mt-2 font-mono">{analysisProgress}% COMPLETE</p>
                                  </div>
                              ) : (
                                  <>
-                                     <p className="text-white text-xl font-bold tracking-tight drop-shadow-md">
-                                         {scannedSubject || 'Verifying Identity'}
-                                     </p>
-                                     <p className="mt-1 text-indigo-200/80 text-sm font-medium bg-black/30 px-3 py-1 rounded-full backdrop-blur-md border border-white/10">
-                                         Align face within the frame
-                                     </p>
+                                     <h3 className="text-white text-xl font-bold tracking-tight drop-shadow-lg flex items-center gap-2">
+                                         {scannedSubject}
+                                     </h3>
+                                     <div className="mt-3 flex flex-col gap-2 items-center">
+                                        <span className="text-indigo-100/90 text-sm font-medium bg-indigo-900/40 px-4 py-1.5 rounded-full backdrop-blur-md border border-indigo-500/30 shadow-lg">
+                                            Look directly at camera
+                                        </span>
+                                        <span className="text-indigo-300/70 text-xs">
+                                            Ensure good lighting
+                                        </span>
+                                     </div>
                                  </>
                              )}
                          </div>
 
                          {/* Action Button */}
                          {scanStep === 'face' && (
-                             <div className="absolute bottom-10">
+                             <div className="absolute bottom-12 animate-in fade-in slide-in-from-bottom-8 duration-500">
                                 <Button 
                                     onClick={captureFaceAndVerify} 
-                                    className="rounded-full h-16 w-16 bg-white hover:bg-indigo-50 text-indigo-600 shadow-[0_0_20px_rgba(255,255,255,0.4)] flex items-center justify-center border-4 border-indigo-500/30"
+                                    className="rounded-full h-20 w-20 bg-white hover:bg-indigo-50 text-indigo-600 shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center justify-center border-4 border-indigo-100 transition-all hover:scale-105 active:scale-95"
                                 >
-                                    <ScanFace size={32} />
+                                    <ScanFace size={36} />
                                 </Button>
                              </div>
                          )}
@@ -493,15 +597,15 @@ const StudentDashboard: React.FC = () => {
 
             {/* Footer for QR Mode */}
             {scanStep === 'qr' && (
-                <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent pt-20 z-20">
+                <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent pt-24 z-20">
                      <div className="flex justify-between items-end">
-                         <div className="text-indigo-200 text-sm font-medium max-w-[200px] leading-tight">
-                             <AlertTriangle size={16} className="inline mr-1 mb-0.5" />
-                             Ensure you are in the classroom for location verification.
+                         <div className="text-indigo-200 text-sm font-medium max-w-[220px] leading-snug bg-black/40 p-3 rounded-xl backdrop-blur-sm border border-white/10">
+                             <AlertTriangle size={14} className="inline mr-1.5 mb-0.5 text-yellow-400" />
+                             For verification, you must be physically present in the classroom.
                          </div>
                          <button 
                             onClick={toggleCamera} 
-                            className="p-3 rounded-full bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20 transition-colors text-white"
+                            className="p-3.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20 transition-colors text-white shadow-lg active:scale-95"
                          >
                              <SwitchCamera size={24} />
                          </button>
@@ -514,65 +618,26 @@ const StudentDashboard: React.FC = () => {
       {/* DASHBOARD CONTENT */}
       {activeTab === 'attendance' && (
         <div className="space-y-6">
-            {/* Status Card */}
-            <div className={`p-6 rounded-2xl shadow-sm border transition-all duration-500 ${
-                scanStep === 'success' 
-                    ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-900' 
-                    : scanStep === 'error'
-                    ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-900'
-                    : 'bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700'
-            }`}>
+            {/* Status Card - Simplified now that we have in-scanner UI */}
+            <div className="p-6 rounded-2xl shadow-sm border bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700">
                 <div className="flex flex-col items-center text-center space-y-4">
-                    {scanStep === 'success' ? (
-                        <>
-                            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2 ring-4 ring-green-50 dark:ring-green-900/30">
-                                <CheckCircle size={32} />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Attendance Marked</h2>
-                                <p className="text-slate-600 dark:text-slate-300 mt-1">{statusMessage}</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-lg">
-                                <Shield size={12} /> VERIFIED SECURELY
-                            </div>
-                            <Button onClick={() => setScanStep('idle')} variant="outline" className="mt-2">
-                                Close
-                            </Button>
-                        </>
-                    ) : scanStep === 'error' ? (
-                        <>
-                             <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-2 ring-4 ring-red-50 dark:ring-red-900/30">
-                                <XCircle size={32} />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Verification Failed</h2>
-                                <p className="text-red-600 dark:text-red-400 font-medium mt-1">{statusMessage}</p>
-                            </div>
-                            <Button onClick={() => { setScanStep('idle'); setStatusMessage(''); }} variant="outline" className="mt-2">
-                                Try Again
-                            </Button>
-                        </>
-                    ) : (
-                        <>
-                            <div className="relative group cursor-pointer" onClick={startScanning}>
-                                <div className="w-24 h-24 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 transform group-hover:scale-105 transition-all duration-300">
-                                    <Scan size={40} className="text-white" />
-                                </div>
-                                <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border-2 border-indigo-100 dark:border-slate-600 flex items-center justify-center">
-                                    <Fingerprint size={16} className="text-indigo-500" />
-                                </div>
-                            </div>
-                            <div>
-                                <h2 className="text-xl font-bold text-slate-800 dark:text-white">Mark Attendance</h2>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-                                    Secure QR scan with facial biometrics and geolocation.
-                                </p>
-                            </div>
-                            <Button size="lg" onClick={startScanning} className="w-full max-w-xs shadow-xl shadow-indigo-500/20 py-4 text-lg rounded-xl">
-                                <Camera size={20} className="mr-2" /> Start Scanner
-                            </Button>
-                        </>
-                    )}
+                    <div className="relative group cursor-pointer" onClick={startScanning}>
+                        <div className="w-28 h-28 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-indigo-500/30 transform group-hover:scale-105 transition-all duration-300">
+                            <Scan size={48} className="text-white" />
+                        </div>
+                        <div className="absolute -bottom-3 -right-3 w-10 h-10 bg-white dark:bg-slate-800 rounded-full border-4 border-slate-50 dark:border-slate-900 flex items-center justify-center shadow-sm">
+                            <Fingerprint size={20} className="text-indigo-500" />
+                        </div>
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-white">Check In</h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto leading-relaxed">
+                            Scan the classroom QR code to mark your attendance securely.
+                        </p>
+                    </div>
+                    <Button size="lg" onClick={startScanning} className="w-full max-w-xs shadow-xl shadow-indigo-500/20 py-4 text-lg rounded-xl transition-transform active:scale-95">
+                        <Camera size={20} className="mr-2" /> Start Scanner
+                    </Button>
                 </div>
             </div>
 
@@ -726,7 +791,7 @@ const StudentDashboard: React.FC = () => {
                  <div className="relative pt-16 px-4 text-center">
                      <div className="w-32 h-32 mx-auto bg-white dark:bg-slate-800 rounded-full p-1.5 shadow-xl ring-4 ring-white/20">
                          {user.faceDataUrl ? (
-                             <img src={user.faceDataUrl} alt="Profile" className="w-full h-full rounded-full object-cover" />
+                             <img src={user.faceDataUrl} alt="Profile" className="w-full h-full rounded-full object-cover transform scale-x-[-1]" />
                          ) : (
                              <div className="w-full h-full rounded-full bg-indigo-50 dark:bg-slate-700 flex items-center justify-center text-indigo-300">
                                  <UserIcon size={48} />
@@ -752,16 +817,6 @@ const StudentDashboard: React.FC = () => {
                              <UserIcon size={12} /> Email
                          </label>
                          <p className="text-slate-800 dark:text-white font-medium break-all">{user.email}</p>
-                     </div>
-                     <div className="p-5 bg-slate-50 dark:bg-slate-700/30 rounded-2xl border border-slate-100 dark:border-slate-700/50 md:col-span-2">
-                         <div className="flex justify-between items-end mb-2">
-                             <label className="text-xs text-slate-400 uppercase font-bold tracking-wider">Overall Attendance</label>
-                             <span className="text-lg font-bold text-green-600 dark:text-green-400">85%</span>
-                         </div>
-                         <div className="w-full h-3 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full" style={{width: '85%'}}></div>
-                         </div>
-                         <p className="text-xs text-slate-400 mt-2 text-right">Excellent record</p>
                      </div>
                  </div>
              </div>

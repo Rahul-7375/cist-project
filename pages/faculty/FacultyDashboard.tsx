@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
@@ -15,7 +16,7 @@ import Button from '../../components/Button';
 
 // Constants
 const QR_REFRESH_INTERVAL_MS = 10000;
-const MAX_FACULTY_MOVEMENT_METERS = 100;
+const MAX_FACULTY_MOVEMENT_METERS = 300; // Increased to 300m to allow for GPS drift
 const DEFAULT_CLASS_DURATION_MINS = 60;
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 

@@ -7,9 +7,13 @@ export const calculateDistance = (loc1: GeoLocation, loc2: GeoLocation): number 
   const Δφ = (loc2.lat - loc1.lat) * Math.PI / 180;
   const Δλ = (loc2.lng - loc1.lng) * Math.PI / 180;
 
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+  let a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
             Math.cos(φ1) * Math.cos(φ2) *
             Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            
+  // Clamp value to prevent floating point errors resulting in NaN for very small distances
+  a = Math.max(0, Math.min(1, a));
+
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   const d = R * c; // in metres
@@ -45,8 +49,8 @@ export const getCurrentLocation = (): Promise<GeoLocation> => {
         },
         {
           enableHighAccuracy: true,
-          timeout: 15000, // Increased timeout for better accuracy lock
-          maximumAge: 0
+          timeout: 20000, // Increased timeout to 20s
+          maximumAge: 5000 // Allow cached position up to 5s old
         }
       );
     }
