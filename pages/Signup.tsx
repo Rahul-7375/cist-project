@@ -1,10 +1,11 @@
+
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { UserRole } from '../types';
-import { Camera, CheckCircle, Lock, Building2, BookOpen, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { Camera, CheckCircle, Lock, Building2, BookOpen, Eye, EyeOff, Sun, Moon, Hash } from 'lucide-react';
 import Button from '../components/Button';
 
 const DEPARTMENTS = [
@@ -33,6 +34,7 @@ const Signup: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [department, setDepartment] = useState('');
   const [subject, setSubject] = useState('');
+  const [rollNo, setRollNo] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.STUDENT);
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -69,6 +71,7 @@ const Signup: React.FC = () => {
         role,
         department: (role === UserRole.STUDENT || role === UserRole.FACULTY) ? department : undefined,
         subject: (role === UserRole.FACULTY) ? subject : undefined,
+        rollNo: (role === UserRole.STUDENT) ? rollNo : undefined,
         faceDataUrl: faceImage || undefined
       });
 
@@ -77,7 +80,6 @@ const Signup: React.FC = () => {
       else navigate('/student');
     } catch (err: any) {
       console.error('Signup error:', err);
-      // Show the specific error message from Firebase (e.g. Project Not Found, Permission Denied)
       const errorMessage = err?.message || 'Failed to create account. Please try again.';
       
       if (errorMessage.includes('project')) {
@@ -95,10 +97,12 @@ const Signup: React.FC = () => {
   const requiresFaceId = role === UserRole.STUDENT;
   const requiresDepartment = role === UserRole.STUDENT || role === UserRole.FACULTY;
   const requiresSubject = role === UserRole.FACULTY;
+  const requiresRollNo = role === UserRole.STUDENT;
   
   const isDetailsValid = name && email && password && 
     (!requiresDepartment || department) &&
-    (!requiresSubject || subject);
+    (!requiresSubject || subject) &&
+    (!requiresRollNo || rollNo);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 transition-colors duration-200">
@@ -176,6 +180,25 @@ const Signup: React.FC = () => {
                 </div>
               </div>
               
+              {requiresRollNo && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Roll Number</label>
+                  <div className="relative">
+                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                       <Hash className="h-4 w-4 text-slate-400" />
+                     </div>
+                     <input
+                        type="text"
+                        value={rollNo}
+                        onChange={(e) => setRollNo(e.target.value)}
+                        className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white transition-colors uppercase"
+                        placeholder="e.g. 21XX1A05XX"
+                        required
+                     />
+                  </div>
+                </div>
+              )}
+
               {requiresDepartment && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Department</label>
@@ -271,7 +294,7 @@ const Signup: React.FC = () => {
                     screenshotFormat="image/jpeg"
                     className="w-full h-full object-cover"
                     videoConstraints={{ facingMode: "user" }}
-                    mirrored={false}
+                    mirrored={true}
                   />
                 )}
                 

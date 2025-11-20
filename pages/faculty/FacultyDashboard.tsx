@@ -126,7 +126,7 @@ const ManualAttendance: React.FC<{ students: User[], subjects: string[], markMan
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <select value={selectedStudent} onChange={e => setSelectedStudent(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
                     <option value="">Select Student</option>
-                    {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.email})</option>)}
+                    {students.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.rollNo || s.email})</option>)}
                 </select>
                 <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
                     <option value="">Select Subject</option>
@@ -519,6 +519,7 @@ const StudentList: React.FC<{ students: User[] }> = ({ students }) => (
                 <thead className="bg-slate-50 dark:bg-slate-700/50 uppercase text-xs">
                     <tr>
                         <th className="px-4 py-3">Name</th>
+                        <th className="px-4 py-3">Roll No</th>
                         <th className="px-4 py-3">Email</th>
                         <th className="px-4 py-3">Department</th>
                         <th className="px-4 py-3">Status</th>
@@ -528,6 +529,7 @@ const StudentList: React.FC<{ students: User[] }> = ({ students }) => (
                     {students.map(s => (
                         <tr key={s.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
                             <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{s.name}</td>
+                            <td className="px-4 py-3 font-mono text-slate-500 dark:text-slate-400">{s.rollNo || '-'}</td>
                             <td className="px-4 py-3">{s.email}</td>
                             <td className="px-4 py-3">{s.department || '-'}</td>
                             <td className="px-4 py-3">

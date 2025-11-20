@@ -14,6 +14,7 @@ export interface User {
   department?: string; // Added department field
   subject?: string;    // Added subject field (for Faculty)
   faceDataUrl?: string; // Mocking face ID storage
+  rollNo?: string;     // Added roll number for students
 }
 
 export interface TimetableEntry {

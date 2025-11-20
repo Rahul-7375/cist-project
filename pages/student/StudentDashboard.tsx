@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
 import { calculateDistance, getCurrentLocation } from '../../services/geoService';
 import { AttendanceRecord, TimetableEntry } from '../../types';
-import { Scan, MapPin, CheckCircle, XCircle, Camera, RefreshCw, User as UserIcon, Mail, Briefcase, History, Calendar, Shield, ChevronRight, SwitchCamera, ZoomIn, ZoomOut } from 'lucide-react';
+import { Scan, MapPin, CheckCircle, XCircle, Camera, RefreshCw, User as UserIcon, Mail, Briefcase, History, Calendar, Shield, ChevronRight, SwitchCamera, ZoomIn, ZoomOut, Hash } from 'lucide-react';
 import Button from '../../components/Button';
 
 const SUBJECTS_BY_DEPT: Record<string, string[]> = {
@@ -413,7 +413,7 @@ const StudentDashboard: React.FC = () => {
                       playsInline={true}
                       onUserMediaError={handleCameraError}
                       onUserMedia={handleCameraLoad}
-                      mirrored={false}
+                      mirrored={videoConstraints.facingMode === 'user'}
                     />
 
                     {/* Camera Switch Button */}
@@ -831,6 +831,18 @@ const StudentDashboard: React.FC = () => {
                            <p className="font-bold text-slate-800 dark:text-white text-lg">{user?.email}</p>
                          </div>
                       </div>
+
+                      {user?.rollNo && (
+                        <div className="group flex items-center p-4 bg-slate-50 dark:bg-slate-700/30 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-indigo-500 transition-colors">
+                           <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-slate-400 shadow-sm mr-4 group-hover:text-indigo-500 transition-colors">
+                              <Hash size={22} />
+                           </div>
+                           <div>
+                             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Roll Number</p>
+                             <p className="font-bold text-slate-800 dark:text-white text-lg font-mono">{user.rollNo}</p>
+                           </div>
+                        </div>
+                      )}
                    </div>
 
                    <div className="space-y-6">

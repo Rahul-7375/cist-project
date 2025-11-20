@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { storageService } from '../../services/storageService';
 import { AttendanceRecord, User, UserRole, ClassSession } from '../../types';
-import { Download, Users, FileText, CheckSquare, Search, Trash2, Edit, Save, X, Briefcase, BookOpen, BarChart3, Calendar, Filter, AlertTriangle } from 'lucide-react';
+import { Download, Users, FileText, CheckSquare, Search, Trash2, Edit, Save, X, Briefcase, BookOpen, BarChart3, Calendar, Filter, AlertTriangle, Hash } from 'lucide-react';
 import Button from '../../components/Button';
 
 const DEPARTMENTS = [
@@ -229,7 +229,8 @@ const AdminDashboard: React.FC = () => {
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase()))
+    (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (u.rollNo && u.rollNo.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -381,7 +382,7 @@ const AdminDashboard: React.FC = () => {
                     >
                       <option value="">-- Select Student --</option>
                       {users.filter(u => u.role === UserRole.STUDENT).map(u => (
-                        <option key={u.uid} value={u.uid}>{u.name} ({u.email})</option>
+                        <option key={u.uid} value={u.uid}>{u.name} ({u.rollNo || u.email})</option>
                       ))}
                     </select>
                   </div>
@@ -477,6 +478,7 @@ const AdminDashboard: React.FC = () => {
                        <div>
                          <div className="font-medium text-slate-900 dark:text-white">{user.name}</div>
                          <div className="text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
+                         {user.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono">{user.rollNo}</div>}
                        </div>
                      </div>
                    </td>
@@ -638,6 +640,7 @@ const AdminDashboard: React.FC = () => {
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                         {report.student.name}
                         <div className="text-xs text-slate-500 dark:text-slate-400 font-normal">{report.student.email}</div>
+                        {report.student.rollNo && <div className="text-xs text-indigo-500 dark:text-indigo-400 font-mono">{report.student.rollNo}</div>}
                       </td>
                       <td className="px-6 py-4">{report.student.department || '-'}</td>
                       <td className="px-6 py-4">
@@ -708,6 +711,24 @@ const AdminDashboard: React.FC = () => {
                 />
               </div>
 
+              {editingUser.role === UserRole.STUDENT && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Roll Number</label>
+                  <div className="relative">
+                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                       <Hash className="h-4 w-4 text-slate-400" />
+                     </div>
+                     <input
+                        type="text"
+                        value={editingUser.rollNo || ''}
+                        onChange={(e) => setEditingUser({ ...editingUser, rollNo: e.target.value })}
+                        className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white uppercase"
+                        placeholder="e.g. 21XX1A05XX"
+                     />
+                  </div>
+                </div>
+              )}
+
               {(editingUser.role === UserRole.STUDENT || editingUser.role === UserRole.FACULTY) && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Department</label>
@@ -767,4 +788,3 @@ const AdminDashboard: React.FC = () => {
 };
 
 export default AdminDashboard;
-    
