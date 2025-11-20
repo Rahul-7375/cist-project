@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
@@ -232,10 +231,18 @@ const TimetableManager: React.FC<{
         });
 
         if (conflict) {
-            setError(`Conflict with ${conflict.subject} (${conflict.startTime}-${conflict.endTime})`);
+            setError(`Scheduling Conflict: Overlaps with ${conflict.subject} (${conflict.startTime}-${conflict.endTime})`);
             setConflictingId(conflict.id);
             setViewedDay(conflict.day); // Show the conflict
             return;
+        }
+
+        // Confirmation Step for Editing
+        if (editingId) {
+            const confirmMessage = `Are you sure you want to update this class?\n\nSubject: ${subject}\nDay: ${day}\nTime: ${time} - ${endTimeStr}`;
+            if (!window.confirm(confirmMessage)) {
+                return;
+            }
         }
 
         setIsLoading(true);
@@ -258,14 +265,14 @@ const TimetableManager: React.FC<{
             setDuration(DEFAULT_CLASS_DURATION_MINS);
         } catch (err) {
             console.error(err);
-            setError('Failed to save');
+            setError('Failed to save schedule entry');
         } finally {
             setIsLoading(false);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (window.confirm("Delete this class?")) {
+        if (window.confirm("Delete this class from the schedule?")) {
             await storageService.deleteTimetableEntry(id);
             refreshTimetable();
             if (editingId === id) handleCancelEdit();

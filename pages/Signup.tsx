@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import Webcam from 'react-webcam';
@@ -6,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { UserRole } from '../types';
 import { DEPARTMENTS, SUBJECTS_BY_DEPT } from '../utils/constants';
-import { Camera, CheckCircle, Lock, Building2, BookOpen, Eye, EyeOff, Sun, Moon, Hash, RefreshCw, ScanFace, X } from 'lucide-react';
+import { Camera, CheckCircle, Lock, Building2, BookOpen, Eye, EyeOff, Sun, Moon, Hash, RefreshCw, ScanFace, X, User as UserIcon, ShieldCheck, Sparkles, Maximize } from 'lucide-react';
 import Button from '../components/Button';
 
 const Signup: React.FC = () => {
@@ -22,6 +21,7 @@ const Signup: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showFaceModal, setShowFaceModal] = useState(false);
+  const [isFlashing, setIsFlashing] = useState(false);
   
   const webcamRef = useRef<Webcam>(null);
   const { signup } = useAuth();
@@ -29,10 +29,14 @@ const Signup: React.FC = () => {
   const navigate = useNavigate();
 
   const capture = useCallback(() => {
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      setFaceImage(imageSrc);
-    }
+    setIsFlashing(true);
+    setTimeout(() => {
+        if (webcamRef.current) {
+          const imageSrc = webcamRef.current.getScreenshot();
+          setFaceImage(imageSrc);
+        }
+        setIsFlashing(false);
+    }, 150);
   }, [webcamRef]);
 
   const handleDepartmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -99,12 +103,6 @@ const Signup: React.FC = () => {
   };
 
   const closeFaceModal = () => {
-      // If we haven't confirmed (saved) the image, we might want to clear it? 
-      // Current logic sets faceImage immediately on capture. 
-      // If user closes without "confirming", it's technically already set in state.
-      // We'll assume closing means they are done or cancelled. 
-      // If they captured but want to cancel, they can Retake or we can add cancel logic.
-      // For simplicity, close just hides modal.
       setShowFaceModal(false);
   };
 
@@ -127,9 +125,13 @@ const Signup: React.FC = () => {
       </button>
       
       <div className="max-w-2xl w-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden transition-colors duration-200">
-        <div className="bg-indigo-900 dark:bg-slate-950 p-6 text-white">
-          <h2 className="text-xl font-bold">Create Account</h2>
-          <p className="text-indigo-200 text-sm">Join the smart attendance system</p>
+        <div className="bg-indigo-900 dark:bg-slate-950 p-6 text-white relative overflow-hidden">
+          <div className="relative z-10">
+             <h2 className="text-xl font-bold">Create Account</h2>
+             <p className="text-indigo-200 text-sm">Join the smart attendance system</p>
+          </div>
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-indigo-800 rounded-full opacity-50"></div>
+          <div className="absolute bottom-0 left-0 -mb-4 -ml-4 w-16 h-16 bg-indigo-700 rounded-full opacity-30"></div>
         </div>
 
         <div className="p-8">
@@ -140,30 +142,24 @@ const Signup: React.FC = () => {
           )}
           
           <div className="space-y-6">
+              {/* Role Selection */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">I am a...</label>
                 <div className="grid grid-cols-3 gap-4">
-                  <button
-                    onClick={() => setRole(UserRole.STUDENT)}
-                    className={`p-4 border rounded-xl text-center transition-all ${role === UserRole.STUDENT ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
-                  >
-                    <span className="block font-semibold text-slate-800 dark:text-slate-200">Student</span>
-                  </button>
-                  <button
-                    onClick={() => setRole(UserRole.FACULTY)}
-                    className={`p-4 border rounded-xl text-center transition-all ${role === UserRole.FACULTY ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
-                  >
-                    <span className="block font-semibold text-slate-800 dark:text-slate-200">Faculty</span>
-                  </button>
-                  <button
-                    onClick={() => setRole(UserRole.ADMIN)}
-                    className={`p-4 border rounded-xl text-center transition-all ${role === UserRole.ADMIN ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
-                  >
-                    <span className="block font-semibold text-slate-800 dark:text-slate-200">Admin</span>
-                  </button>
+                  {[UserRole.STUDENT, UserRole.FACULTY, UserRole.ADMIN].map((r) => (
+                     <button
+                        key={r}
+                        onClick={() => setRole(r)}
+                        className={`p-3 sm:p-4 border rounded-xl text-center transition-all relative overflow-hidden ${role === r ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-600' : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
+                      >
+                        <span className="block font-semibold text-slate-800 dark:text-slate-200 capitalize relative z-10">{r}</span>
+                        {role === r && <div className="absolute inset-0 bg-indigo-100 dark:bg-indigo-900/20 opacity-20"></div>}
+                      </button>
+                  ))}
                 </div>
               </div>
 
+              {/* Common Fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
@@ -189,6 +185,7 @@ const Signup: React.FC = () => {
                 </div>
               </div>
               
+              {/* Roll Number */}
               {requiresRollNo && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Roll Number</label>
@@ -208,6 +205,7 @@ const Signup: React.FC = () => {
                 </div>
               )}
 
+              {/* Department & Subject */}
               {requiresDepartment && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Department</label>
@@ -252,6 +250,7 @@ const Signup: React.FC = () => {
                 </div>
               )}
 
+              {/* Password */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Password</label>
                 <div className="relative">
@@ -276,40 +275,52 @@ const Signup: React.FC = () => {
                 </div>
               </div>
 
+              {/* Compact Face Registration UI - Row Style */}
               {requiresFaceId && (
-                  <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                      <div className="flex justify-between items-center mb-3">
-                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Face Registration</label>
-                          {faceImage && <span className="text-xs text-green-600 dark:text-green-400 font-bold flex items-center"><CheckCircle size={12} className="mr-1"/> Completed</span>}
-                      </div>
-                      
-                      {faceImage ? (
-                          <div className="flex items-center gap-4">
-                              <div className="w-16 h-16 rounded-lg overflow-hidden ring-2 ring-indigo-500">
-                                  <img src={faceImage} alt="Face" className="w-full h-full object-cover transform scale-x-[-1]" />
-                              </div>
-                              <div className="flex-1">
-                                  <p className="text-sm text-slate-600 dark:text-slate-300">Biometric ID captured successfully.</p>
-                                  <button onClick={openFaceModal} className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mt-1">
-                                      Retake Photo
-                                  </button>
-                              </div>
+                  <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Face Verification</label>
+                      <div 
+                        onClick={openFaceModal}
+                        className={`cursor-pointer relative overflow-hidden group rounded-xl border-2 transition-all duration-200 flex items-center p-3 gap-4 ${
+                            faceImage 
+                            ? 'border-green-500 bg-green-50/50 dark:bg-green-900/10' 
+                            : 'border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                          <div className={`w-14 h-14 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm ${faceImage ? 'bg-white' : 'bg-slate-100 dark:bg-slate-700'}`}>
+                             {faceImage ? (
+                                 <img src={faceImage} className="w-full h-full rounded-full object-cover transform scale-x-[-1]" alt="Face" />
+                             ) : (
+                                 <ScanFace className="text-slate-400 group-hover:text-indigo-500 transition-colors" size={24} />
+                             )}
                           </div>
-                      ) : (
-                          <Button type="button" onClick={openFaceModal} variant="outline" className="w-full border-dashed border-2 h-24 flex flex-col gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-300">
-                              <ScanFace className="w-6 h-6" />
-                              <span>Click to Register Face ID</span>
-                          </Button>
-                      )}
+                          
+                          <div className="flex-1">
+                             <h4 className={`font-semibold text-sm ${faceImage ? 'text-green-700 dark:text-green-400' : 'text-slate-700 dark:text-slate-200'}`}>
+                                {faceImage ? 'Face ID Registered' : 'Register Face ID'}
+                             </h4>
+                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                {faceImage ? 'Click to update photo' : ''}
+                             </p>
+                          </div>
+                          
+                          <div className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                             faceImage 
+                             ? 'bg-white text-green-700 shadow-sm border border-green-200' 
+                             : 'bg-indigo-600 text-white shadow-sm group-hover:bg-indigo-700'
+                          }`}>
+                             {faceImage ? 'Retake' : 'Start Scan'}
+                          </div>
+                      </div>
                   </div>
               )}
 
-              <div className="pt-2">
+              <div className="pt-4">
                 <Button 
                   onClick={handleSignup} 
                   disabled={!isFormValid}
                   isLoading={isLoading}
-                  className="w-full py-3 text-lg"
+                  className="w-full py-3 text-lg shadow-lg shadow-indigo-500/20"
                 >
                   Create Account
                 </Button>
@@ -317,86 +328,116 @@ const Signup: React.FC = () => {
           </div>
 
           <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-            Already have an account? <Link to="/login" className="text-slate-600 dark:text-slate-400 font-medium hover:text-indigo-600 dark:hover:text-indigo-400">Login</Link>
+            Already have an account? <Link to="/login" className="text-indigo-600 dark:text-indigo-400 font-medium hover:text-indigo-500 dark:hover:text-indigo-300">Login</Link>
           </div>
         </div>
       </div>
 
-      {/* Face Registration Modal */}
+      {/* Modern Full-Screen Scanner UI */}
       {showFaceModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-                  {/* Modal Header */}
-                  <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                      <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
-                          <ScanFace className="text-indigo-500"/> Register Face ID
-                      </h3>
-                      <button onClick={closeFaceModal} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
-                          <X size={24} />
-                      </button>
-                  </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/95 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+             <div className="relative w-full max-w-md bg-black rounded-[2rem] overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[600px] max-h-[90vh]">
+                
+                {/* Floating Header */}
+                <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-start bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-12">
+                   <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-lg">
+                        <h3 className="font-medium text-sm text-white flex items-center gap-2">
+                             <ScanFace className="text-indigo-400" size={16} /> 
+                             {faceImage ? "Verification Complete" : "Scan Face"}
+                        </h3>
+                   </div>
+                   <button onClick={closeFaceModal} className="p-2.5 bg-black/40 backdrop-blur-md hover:bg-white/10 rounded-full text-white/90 transition-colors border border-white/10 shadow-lg">
+                     <X size={20} />
+                   </button>
+                </div>
 
-                  {/* Modal Body */}
-                  <div className="p-4 flex-1 overflow-y-auto">
-                      <div className="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden shadow-inner mb-4 ring-1 ring-slate-200 dark:ring-slate-700">
-                        {faceImage ? (
-                          <img src={faceImage} alt="Captured" className="w-full h-full object-cover transform scale-x-[-1]" />
-                        ) : (
-                          <Webcam
-                            audio={false}
-                            ref={webcamRef}
-                            screenshotFormat="image/jpeg"
-                            className="w-full h-full object-cover transform scale-x-[-1]"
-                            videoConstraints={{ facingMode: "user" }}
-                            mirrored={true}
-                          />
-                        )}
+                {/* Camera Viewport */}
+                <div className="relative flex-1 bg-slate-900 overflow-hidden">
+                     {faceImage ? (
+                         <img src={faceImage} className="w-full h-full object-cover transform scale-x-[-1]" alt="Captured" />
+                     ) : (
+                         <Webcam
+                             audio={false}
+                             ref={webcamRef}
+                             screenshotFormat="image/jpeg"
+                             className="w-full h-full object-cover"
+                             videoConstraints={{ facingMode: "user", aspectRatio: 0.75 }}
+                             mirrored={true}
+                         />
+                     )}
+                     
+                     {/* Flash Effect */}
+                     {isFlashing && <div className="absolute inset-0 bg-white animate-out fade-out duration-300 z-50 pointer-events-none"></div>}
+
+                     {/* HUD Overlay */}
+                     <div className="absolute inset-0 pointer-events-none">
+                        {/* Grid Background */}
+                        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:30px_30px]"></div>
                         
-                        {/* Biometric Overlay - Only show when camera is active and no image captured */}
-                        {!faceImage && (
-                          <>
-                            <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle,transparent_30%,rgba(0,0,0,0.7)_100%)]"></div>
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              <div className="relative w-48 h-64 border-2 border-white/30 rounded-[50%] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)_inset]">
-                                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-1 h-3 bg-indigo-500/80"></div>
-                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-1 h-3 bg-indigo-500/80"></div>
-                                <div className="absolute top-1/2 left-0 -translate-y-1/2 w-3 h-1 bg-indigo-500/80"></div>
-                                <div className="absolute top-1/2 right-0 -translate-y-1/2 w-3 h-1 bg-indigo-500/80"></div>
-                                <div className="w-full h-1 bg-indigo-400/60 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan opacity-60"></div>
-                              </div>
-                            </div>
-                            <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
-                              <span className="inline-block bg-black/60 backdrop-blur-md text-white text-xs font-medium px-4 py-1.5 rounded-full border border-white/10">
-                                Position face in oval
-                              </span>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                        {!faceImage ? (
+                            <>
+                                {/* Viewfinder Brackets */}
+                                <div className="absolute top-16 left-8 w-12 h-12 border-t-[3px] border-l-[3px] border-indigo-500/80 rounded-tl-2xl"></div>
+                                <div className="absolute top-16 right-8 w-12 h-12 border-t-[3px] border-r-[3px] border-indigo-500/80 rounded-tr-2xl"></div>
+                                <div className="absolute bottom-32 left-8 w-12 h-12 border-b-[3px] border-l-[3px] border-indigo-500/80 rounded-bl-2xl"></div>
+                                <div className="absolute bottom-32 right-8 w-12 h-12 border-b-[3px] border-r-[3px] border-indigo-500/80 rounded-br-2xl"></div>
+                                
+                                {/* Laser Scan Line */}
+                                <div className="absolute top-0 left-0 right-0 h-0.5 bg-indigo-400/60 shadow-[0_0_20px_rgba(99,102,241,0.8)] animate-scan"></div>
+                                
+                                {/* Central Focus Reticle */}
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-64 border border-indigo-400/20 rounded-[2.5rem]">
+                                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-2 bg-indigo-400/50"></div>
+                                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-1 h-2 bg-indigo-400/50"></div>
+                                    <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-1 bg-indigo-400/50"></div>
+                                    <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-2 h-1 bg-indigo-400/50"></div>
+                                </div>
 
-                      {/* Controls */}
-                      <div className="flex justify-center">
-                        {faceImage ? (
-                            <div className="flex gap-3 w-full">
-                                <Button variant="secondary" onClick={retakeFace} className="flex-1">
-                                    <RefreshCw className="w-4 h-4 mr-2" /> Retake
-                                </Button>
-                                <Button onClick={confirmFaceCapture} className="flex-1 bg-green-600 hover:bg-green-700 border-transparent">
-                                    <CheckCircle className="w-4 h-4 mr-2" /> Confirm
-                                </Button>
-                            </div>
+                                <div className="absolute bottom-36 left-0 right-0 text-center">
+                                    <span className="inline-block px-4 py-1.5 bg-black/60 backdrop-blur-md rounded-full text-xs font-medium text-indigo-200 border border-indigo-500/20 tracking-wide">
+                                        ALIGN FACE IN FRAME
+                                    </span>
+                                </div>
+                            </>
                         ) : (
-                            <button 
-                                onClick={capture}
-                                className="w-16 h-16 rounded-full border-4 border-indigo-500 flex items-center justify-center bg-white/10 hover:bg-indigo-500 transition-all duration-300 group focus:outline-none focus:ring-4 focus:ring-indigo-500/30 shadow-lg"
-                                title="Capture Photo"
-                            >
-                                <div className="w-12 h-12 bg-indigo-500 rounded-full group-hover:scale-90 transition-transform duration-200"></div>
-                            </button>
+                            /* Success Overlay */
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                                <div className="flex flex-col items-center animate-in zoom-in duration-300 p-8 bg-white/10 backdrop-blur-md rounded-3xl border border-white/20 shadow-2xl">
+                                    <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.5)] mb-4">
+                                        <CheckCircle className="text-white w-10 h-10" />
+                                    </div>
+                                    <h3 className="text-white font-bold text-xl tracking-tight">Scan Successful</h3>
+                                    <p className="text-indigo-100/80 text-sm mt-1 font-medium">ID Generated</p>
+                                </div>
+                            </div>
                         )}
-                      </div>
-                  </div>
-              </div>
+                     </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-20 pb-8 px-8 z-30">
+                    {faceImage ? (
+                       <div className="grid grid-cols-2 gap-4">
+                          <Button variant="secondary" onClick={retakeFace} className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md h-12 rounded-xl">
+                              <RefreshCw size={18} /> Retake
+                          </Button>
+                          <Button onClick={confirmFaceCapture} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30 h-12 rounded-xl border-none">
+                              Use Photo
+                          </Button>
+                       </div>
+                    ) : (
+                       <button 
+                          onClick={capture} 
+                          className="w-full h-14 bg-white text-black rounded-2xl font-bold text-lg shadow-[0_0_25px_rgba(255,255,255,0.3)] hover:bg-indigo-50 hover:shadow-[0_0_35px_rgba(255,255,255,0.5)] active:scale-95 transition-all flex items-center justify-center gap-3 group"
+                       >
+                          <div className="p-1.5 bg-black rounded-full text-white group-hover:bg-indigo-600 transition-colors">
+                              <Camera size={18} />
+                          </div>
+                          Capture Photo
+                       </button>
+                    )}
+                </div>
+             </div>
           </div>
       )}
     </div>
