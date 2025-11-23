@@ -81,10 +81,10 @@ const Login: React.FC = () => {
             <ShieldCheck className="text-indigo-200 w-8 h-8" />
           </div>
           <h2 className="text-2xl font-bold text-white">
-            {isForgotPassword ? 'Reset Password' : 'Welcome Back'}
+            {isForgotPassword ? 'Reset Password' : 'Smart Attendance'}
           </h2>
           <p className="text-indigo-300 mt-2">
-            {isForgotPassword ? 'Recover your account access' : 'Sign in to Smart Attendance'}
+            {isForgotPassword ? 'Recover your account access' : 'Student & Faculty Portal Login'}
           </p>
         </div>
 
@@ -201,7 +201,7 @@ const Login: React.FC = () => {
               <div className="text-center text-sm text-slate-500 dark:text-slate-400">
                 Don't have an account?{' '}
                 <Link to="/signup" className="text-indigo-600 dark:text-indigo-400 font-medium hover:text-indigo-500 dark:hover:text-indigo-300">
-                  Sign up
+                  Register here
                 </Link>
               </div>
             </form>

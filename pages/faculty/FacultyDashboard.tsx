@@ -1,22 +1,19 @@
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
 import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
-import { getCurrentLocation, calculateDistance } from '../../services/geoService';
-import { TimetableEntry, ClassSession, User, UserRole, AttendanceRecord, GeoLocation } from '../../types';
+import { getCurrentLocation } from '../../services/geoService';
+import { TimetableEntry, ClassSession, User, UserRole, AttendanceRecord } from '../../types';
 import { 
-  LayoutDashboard, Calendar, Users, ClipboardCheck, User as UserIcon, LogOut, Trash2, 
-  Menu, X, Sun, Moon, Camera, CheckCircle, AlertTriangle, RefreshCw, MapPin, Play, StopCircle, Clock, Edit, XCircle, GripVertical,
-  Search, ArrowUpDown, ChevronUp, ChevronDown
+  LayoutDashboard, Calendar, Users, ClipboardCheck, Clock, Edit, XCircle, GripVertical,
+  AlertTriangle, RefreshCw, X, Play, StopCircle, Trash2, MapPin, CheckCircle
 } from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/Button';
+import { SYSTEM_CONFIG } from '../../utils/constants';
 
 // Constants
-const QR_REFRESH_INTERVAL_MS = 10000;
-const MAX_FACULTY_MOVEMENT_METERS = 300; // Increased to 300m to allow for GPS drift
 const DEFAULT_CLASS_DURATION_MINS = 60;
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -156,7 +153,6 @@ const TimetableManager: React.FC<{
     const [viewedDay, setViewedDay] = useState<string>(DAYS_OF_WEEK[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]);
     const [scheduleStatus, setScheduleStatus] = useState({ currentClassId: null as string | null, nextClassId: null as string | null });
 
-    // New State for Edit/Conflict
     const [editingId, setEditingId] = useState<string | null>(null);
     const [conflictingId, setConflictingId] = useState<string | null>(null);
     const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -172,14 +168,6 @@ const TimetableManager: React.FC<{
         if (subjects.length > 0 && !subject && !editingId) setSubject(subjects[0]);
     }, [subjects, subject, editingId]);
 
-    // Clear conflict error when inputs change
-    useEffect(() => {
-        if (conflictingId) {
-            setConflictingId(null);
-            setError(null);
-        }
-    }, [day, time, duration, subject]);
-
     const handleEdit = (entry: TimetableEntry) => {
         setEditingId(entry.id);
         setDay(entry.day);
@@ -190,11 +178,9 @@ const TimetableManager: React.FC<{
         const end = timeToMinutes(entry.endTime);
         setDuration(end - start);
         
-        setViewedDay(entry.day); // Switch view to the day being edited
+        setViewedDay(entry.day);
         setError(null);
         setConflictingId(null);
-        
-        // Scroll to top to show form
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -221,29 +207,19 @@ const TimetableManager: React.FC<{
         const newEnd = newStart + duration;
         const endTimeStr = minutesToTime(newEnd);
 
-        // Check overlap
         const conflict = timetable.find(entry => {
-            if (entry.id === editingId) return false; // Ignore self if editing
+            if (entry.id === editingId) return false;
             if (entry.day !== day) return false;
             const existStart = timeToMinutes(entry.startTime);
             const existEnd = timeToMinutes(entry.endTime);
-            // (StartA < EndB) and (EndA > StartB)
             return (newStart < existEnd && newEnd > existStart);
         });
 
         if (conflict) {
             setError(`Scheduling Conflict: Overlaps with ${conflict.subject} (${conflict.startTime}-${conflict.endTime})`);
             setConflictingId(conflict.id);
-            setViewedDay(conflict.day); // Show the conflict
+            setViewedDay(conflict.day);
             return;
-        }
-
-        // Confirmation Step for Editing
-        if (editingId) {
-            const confirmMessage = `Are you sure you want to update this class?\n\nSubject: ${subject}\nDay: ${day}\nTime: ${time} - ${endTimeStr}`;
-            if (!window.confirm(confirmMessage)) {
-                return;
-            }
         }
 
         setIsLoading(true);
@@ -258,10 +234,7 @@ const TimetableManager: React.FC<{
             };
             await storageService.addTimetableEntry(newEntry);
             refreshTimetable();
-            
-            if (editingId) {
-                setEditingId(null);
-            }
+            if (editingId) setEditingId(null);
             setTime('');
             setDuration(DEFAULT_CLASS_DURATION_MINS);
         } catch (err) {
@@ -280,7 +253,6 @@ const TimetableManager: React.FC<{
         }
     };
 
-    // --- Drag and Drop Logic ---
     const handleDragStart = (e: React.DragEvent, id: string) => {
         e.dataTransfer.setData('text/plain', id);
         setDraggedId(id);
@@ -292,68 +264,38 @@ const TimetableManager: React.FC<{
         e.dataTransfer.dropEffect = 'move';
     };
 
-    const handleSwapTimes = async (sourceId: string, targetId: string) => {
-        const sourceEntry = timetable.find(e => e.id === sourceId);
-        const targetEntry = timetable.find(e => e.id === targetId);
-
-        if (!sourceEntry || !targetEntry || sourceEntry.day !== targetEntry.day) return;
-
-        // Swap start/end times
-        const updatedSource = { 
-            ...sourceEntry, 
-            startTime: targetEntry.startTime, 
-            endTime: targetEntry.endTime 
-        };
-        
-        const updatedTarget = { 
-            ...targetEntry, 
-            startTime: sourceEntry.startTime, 
-            endTime: sourceEntry.endTime 
-        };
-
-        setIsLoading(true);
-        try {
-            await Promise.all([
-                storageService.addTimetableEntry(updatedSource),
-                storageService.addTimetableEntry(updatedTarget)
-            ]);
-            refreshTimetable();
-        } catch (e) {
-            console.error("Swap failed", e);
-            setError("Failed to reorder schedule");
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleDrop = (e: React.DragEvent, targetId: string) => {
+    const handleDrop = async (e: React.DragEvent, targetId: string) => {
         e.preventDefault();
         const sourceId = e.dataTransfer.getData('text/plain');
         setDraggedId(null);
         
         if (sourceId && sourceId !== targetId) {
-            if (window.confirm("Swap these two time slots?")) {
-                handleSwapTimes(sourceId, targetId);
+            const sourceEntry = timetable.find(e => e.id === sourceId);
+            const targetEntry = timetable.find(e => e.id === targetId);
+
+            if (sourceEntry && targetEntry && sourceEntry.day === targetEntry.day) {
+                if (window.confirm("Swap these two time slots?")) {
+                    const updatedSource = { ...sourceEntry, startTime: targetEntry.startTime, endTime: targetEntry.endTime };
+                    const updatedTarget = { ...targetEntry, startTime: sourceEntry.startTime, endTime: sourceEntry.endTime };
+                    await Promise.all([
+                        storageService.addTimetableEntry(updatedSource),
+                        storageService.addTimetableEntry(updatedTarget)
+                    ]);
+                    refreshTimetable();
+                }
             }
         }
     };
 
     const filteredEntries = timetable.filter(e => e.day === viewedDay).sort((a,b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
-    // Calculate conflicts for visualization
     const conflictingIds = useMemo(() => {
         const ids = new Set<string>();
         const sorted = [...filteredEntries].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
-        
         for (let i = 0; i < sorted.length - 1; i++) {
-            const current = sorted[i];
-            const next = sorted[i+1];
-            const currentEnd = timeToMinutes(current.endTime);
-            const nextStart = timeToMinutes(next.startTime);
-            
-            if (currentEnd > nextStart) {
-                ids.add(current.id);
-                ids.add(next.id);
+            if (timeToMinutes(sorted[i].endTime) > timeToMinutes(sorted[i+1].startTime)) {
+                ids.add(sorted[i].id);
+                ids.add(sorted[i+1].id);
             }
         }
         return ids;
@@ -375,7 +317,7 @@ const TimetableManager: React.FC<{
                 </div>
 
                 {error && (
-                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 rounded-lg text-sm flex items-center gap-2 animate-pulse border border-red-100 dark:border-red-900/50">
+                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 rounded-lg text-sm flex items-center gap-2 border border-red-100 dark:border-red-900/50">
                         <AlertTriangle size={16} /> {error}
                     </div>
                 )}
@@ -386,7 +328,7 @@ const TimetableManager: React.FC<{
                         <select 
                             value={day} 
                             onChange={e => setDay(e.target.value)} 
-                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                         >
                             {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
@@ -397,7 +339,7 @@ const TimetableManager: React.FC<{
                             type="time" 
                             value={time} 
                             onChange={e => setTime(e.target.value)} 
-                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white" 
                             required 
                         />
                     </div>
@@ -407,9 +349,8 @@ const TimetableManager: React.FC<{
                             type="number" 
                             value={duration} 
                             onChange={e => setDuration(Number(e.target.value))} 
-                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
-                            min="15" 
-                            step="15" 
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white" 
+                            min="15" step="15" 
                         />
                     </div>
                     <div>
@@ -417,12 +358,12 @@ const TimetableManager: React.FC<{
                         <select 
                             value={subject} 
                             onChange={e => setSubject(e.target.value)} 
-                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                         >
                             {subjects.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
-                    <Button type="submit" isLoading={isLoading} variant={editingId ? 'primary' : 'secondary'} className={editingId ? 'bg-indigo-600 hover:bg-indigo-700' : ''}>
+                    <Button type="submit" isLoading={isLoading} variant={editingId ? 'primary' : 'secondary'}>
                         {editingId ? 'Update Class' : 'Add Class'}
                     </Button>
                 </form>
@@ -466,587 +407,391 @@ const TimetableManager: React.FC<{
                                 `}>
                                     <div className="flex items-center justify-between w-full">
                                         <div className="flex items-center gap-4">
-                                            {/* Drag Handle */}
                                             <div className="text-slate-300 group-hover:text-indigo-400 cursor-grab active:cursor-grabbing">
                                                 <GripVertical size={20} />
                                             </div>
-                                            
-                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-lg 
-                                                ${isConflict ? 'bg-red-100 text-red-700 dark:bg-red-800 dark:text-red-200' : 
-                                                  isCurrent ? 'bg-green-100 text-green-700' : 
-                                                  'bg-indigo-100 text-indigo-700 dark:bg-slate-700 dark:text-indigo-400'}`}>
-                                                {entry.subject.charAt(0)}
-                                            </div>
                                             <div>
-                                                <h4 className="font-bold text-slate-800 dark:text-white">{entry.subject}</h4>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                                                    <Clock size={12} /> {entry.startTime} - {entry.endTime}
-                                                </p>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="font-bold text-slate-800 dark:text-white">{entry.subject}</h4>
+                                                    <span className="text-xs font-mono bg-slate-100 dark:bg-slate-900 text-slate-500 px-2 py-0.5 rounded">
+                                                        {entry.startTime} - {entry.endTime}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-4 mt-1">
+                                                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                                        <Clock size={12} /> {timeToMinutes(entry.endTime) - timeToMinutes(entry.startTime)} min
+                                                    </span>
+                                                    {isConflict && (
+                                                        <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 font-bold">
+                                                            <AlertTriangle size={12} /> Conflict
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                        
-                                        <div className="flex items-center gap-3 self-center">
-                                            {isCurrent && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded animate-pulse">NOW</span>}
-                                            {isNext && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">NEXT</span>}
-                                            
-                                            <div className="flex gap-1">
-                                                <button type="button" onClick={() => handleEdit(entry)} className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit Class">
-                                                    <Edit size={18} />
-                                                </button>
-                                                <button type="button" onClick={() => handleDelete(entry.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors" title="Delete Class">
-                                                    <Trash2 size={18} />
-                                                </button>
-                                            </div>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleEdit(entry)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 rounded">
+                                                <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => handleDelete(entry.id)} className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/50 rounded">
+                                                <Trash2 size={16} />
+                                            </button>
                                         </div>
                                     </div>
-                                    
-                                    {/* Expanded Conflict UI inside card */}
-                                    {isConflict && (
-                                        <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/50 rounded-md border border-red-200 dark:border-red-800 flex items-center gap-2 text-sm text-red-700 dark:text-red-200 animate-in fade-in slide-in-from-top-2">
-                                            <AlertTriangle size={16} className="flex-shrink-0" />
-                                            <span className="font-medium">Scheduling Conflict Detected:</span>
-                                            <span>This class overlaps with another session.</span>
-                                        </div>
-                                    )}
                                 </div>
-                             );
+                            );
                         })}
                     </div>
                 ) : (
-                    <div className="text-center py-8 text-slate-400 dark:text-slate-500">No classes scheduled for {viewedDay}</div>
-                )}
-             </div>
-        </div>
-    );
-};
-
-const StudentList: React.FC<{ students: User[] }> = ({ students }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
-
-    const handleSort = (key: string) => {
-        let direction: 'asc' | 'desc' = 'asc';
-        if (sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-    };
-
-    const sortedStudents = useMemo(() => {
-        let sortableItems = [...students];
-        
-        // Filter
-        if (searchTerm) {
-            const lowerTerm = searchTerm.toLowerCase();
-            sortableItems = sortableItems.filter(student => 
-                student.name.toLowerCase().includes(lowerTerm) ||
-                (student.rollNo && student.rollNo.toLowerCase().includes(lowerTerm)) ||
-                student.email.toLowerCase().includes(lowerTerm) ||
-                (student.department && student.department.toLowerCase().includes(lowerTerm))
-            );
-        }
-
-        // Sort
-        if (sortConfig !== null) {
-            sortableItems.sort((a, b) => {
-                let aValue: any = a[sortConfig.key as keyof User];
-                let bValue: any = b[sortConfig.key as keyof User];
-
-                // Handle derived status
-                if (sortConfig.key === 'status') {
-                    aValue = !!a.faceDataUrl;
-                    bValue = !!b.faceDataUrl;
-                }
-
-                // Handle nulls/undefined
-                if (!aValue) aValue = '';
-                if (!bValue) bValue = '';
-
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
-                return 0;
-            });
-        }
-        return sortableItems;
-    }, [students, searchTerm, sortConfig]);
-
-    const SortIcon = ({ columnKey }: { columnKey: string }) => {
-        if (sortConfig.key !== columnKey) return <ArrowUpDown size={14} className="text-slate-400 opacity-50 group-hover:opacity-100" />;
-        return sortConfig.direction === 'asc' 
-            ? <ChevronUp size={14} className="text-indigo-500" /> 
-            : <ChevronDown size={14} className="text-indigo-500" />;
-    };
-
-    return (
-        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-800/50">
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <Users size={20} className="text-indigo-500"/> Registered Students
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        Total: {sortedStudents.length} {searchTerm && `(filtered from ${students.length})`}
-                    </p>
-                </div>
-                
-                <div className="relative w-full sm:w-64">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-4 w-4 text-slate-400" />
+                    <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
+                        <Calendar size={48} className="mx-auto mb-3 opacity-20" />
+                        <p>No classes scheduled for {viewedDay}</p>
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Search name, roll no..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg leading-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
-                    />
-                </div>
-            </div>
-            
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
-                    <thead className="bg-slate-50 dark:bg-slate-700/50 uppercase text-xs font-semibold text-slate-500 dark:text-slate-400 border-b dark:border-slate-700">
-                        <tr>
-                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('name')}>
-                                <div className="flex items-center gap-2">Name <SortIcon columnKey="name"/></div>
-                            </th>
-                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('rollNo')}>
-                                <div className="flex items-center gap-2">Roll No <SortIcon columnKey="rollNo"/></div>
-                            </th>
-                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('email')}>
-                                <div className="flex items-center gap-2">Email <SortIcon columnKey="email"/></div>
-                            </th>
-                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('department')}>
-                                <div className="flex items-center gap-2">Department <SortIcon columnKey="department"/></div>
-                            </th>
-                            <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onClick={() => handleSort('status')}>
-                                <div className="flex items-center gap-2">Status <SortIcon columnKey="status"/></div>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {sortedStudents.length > 0 ? sortedStudents.map((s) => (
-                            <tr key={s.uid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold text-xs">
-                                            {s.name.charAt(0)}
-                                        </div>
-                                        <span className="font-medium text-slate-900 dark:text-white">{s.name}</span>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{s.rollNo || '-'}</td>
-                                <td className="px-6 py-4 break-all">{s.email}</td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                                        {s.department || 'General'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    {s.faceDataUrl ? (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-100 dark:border-green-900/30">
-                                            <CheckCircle size={12} /> Verified
-                                        </span>
-                                    ) : (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border border-orange-100 dark:border-orange-900/30">
-                                            <AlertTriangle size={12} /> Pending
-                                        </span>
-                                    )}
-                                </td>
-                            </tr>
-                        )) : (
-                            <tr>
-                                <td colSpan={5} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <Users size={32} className="opacity-20" />
-                                        <p>No students found matching your search.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                )}
             </div>
         </div>
     );
 };
-
-const AttendanceReport: React.FC<{ attendance: AttendanceRecord[], students: User[] }> = ({ attendance, students }) => {
-    return (
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Recent Attendance</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
-                    <thead className="bg-slate-50 dark:bg-slate-700/50 uppercase text-xs">
-                        <tr>
-                            <th className="px-4 py-3">Date</th>
-                            <th className="px-4 py-3">Student</th>
-                            <th className="px-4 py-3">Subject</th>
-                            <th className="px-4 py-3">Verification</th>
-                            <th className="px-4 py-3">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {attendance.slice(0, 20).map(r => (
-                            <tr key={r.id} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                <td className="px-4 py-3 whitespace-nowrap">{new Date(r.timestamp).toLocaleString()}</td>
-                                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{r.studentName}</td>
-                                <td className="px-4 py-3 whitespace-nowrap">{r.subject}</td>
-                                <td className="px-4 py-3 whitespace-nowrap">
-                                    <div className="flex gap-1">
-                                        {r.verifiedByFace && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Face</span>}
-                                        {r.verifiedByLocation && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">GPS</span>}
-                                        {!r.verifiedByFace && !r.verifiedByLocation && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">Manual</span>}
-                                    </div>
-                                </td>
-                                <td className="px-4 py-3"><span className="text-green-600 font-bold text-xs">Present</span></td>
-                            </tr>
-                        ))}
-                        {attendance.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No records found</td></tr>}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-};
-
-const FacultyProfile: React.FC<{ user: User, update: (u: User) => void }> = ({ user, update }) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const [name, setName] = useState(user.name);
-    const [subject, setSubject] = useState(user.subject || '');
-    
-    const handleSave = async () => {
-        const updated = { ...user, name, subject };
-        await storageService.updateUser(updated);
-        update(updated);
-        setIsEditing(false);
-    };
-
-    return (
-        <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 max-w-2xl mx-auto">
-            <div className="flex items-center gap-6 mb-8">
-                <div className="w-24 h-24 bg-indigo-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-300 text-3xl font-bold">
-                    {user.name.charAt(0)}
-                </div>
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{user.name}</h2>
-                    <p className="text-slate-500 dark:text-slate-400 break-all">{user.email}</p>
-                    <span className="inline-block mt-2 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold uppercase rounded dark:bg-indigo-900/30 dark:text-indigo-300">Faculty</span>
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Full Name</label>
-                    <input 
-                        type="text" 
-                        value={name} 
-                        onChange={e => setName(e.target.value)} 
-                        disabled={!isEditing}
-                        className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-white disabled:opacity-60"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Department</label>
-                    <input 
-                        type="text" 
-                        value={user.department || ''} 
-                        disabled
-                        className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-100 dark:bg-slate-800 dark:text-slate-400 cursor-not-allowed"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Subject Specialization</label>
-                    <input 
-                        type="text" 
-                        value={subject} 
-                        onChange={e => setSubject(e.target.value)}
-                        disabled={!isEditing}
-                        className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-white disabled:opacity-60"
-                    />
-                </div>
-                
-                <div className="flex justify-end pt-4">
-                    {isEditing ? (
-                        <div className="flex gap-3">
-                            <Button variant="secondary" onClick={() => setIsEditing(false)}>Cancel</Button>
-                            <Button onClick={handleSave}>Save Changes</Button>
-                        </div>
-                    ) : (
-                        <Button onClick={() => setIsEditing(true)}>Edit Profile</Button>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
 
 const FacultyDashboard: React.FC = () => {
     const { user } = useAuth();
-    const [searchParams, setSearchParams] = useSearchParams();
-    const view = searchParams.get('view') || 'dashboard';
-    const [activeSession, setActiveSession] = useState<ClassSession | null>(null);
-    const [showFullScreenQR, setShowFullScreenQR] = useState(false);
-    const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
-    const [students, setStudents] = useState<User[]>([]);
-    const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-    const [countdown, setCountdown] = useState(0);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [initialLocation, setInitialLocation] = useState<GeoLocation | null>(null);
+    const [searchParams] = useSearchParams();
+    const activeTab = searchParams.get('view') || 'dashboard';
 
-    // Load Data
-    const loadData = useCallback(async () => {
-        if (!user) return;
-        try {
-            const [t, u, a, s] = await Promise.all([
-                storageService.getTimetable(user.uid),
-                storageService.getAllUsers(),
-                storageService.getAllAttendance(),
-                storageService.getActiveSession(user.uid)
-            ]);
-            
-            setTimetable(t);
-            setStudents(u.filter(user => user.role === UserRole.STUDENT));
-            setAttendance(a.filter(rec => rec.subject === user.subject || t.some(e => e.subject === rec.subject)));
-            
-            if (s) {
-                setActiveSession(s);
-                setInitialLocation(s.location);
-            }
-            
-        } catch (e) {
-            console.error(e);
+    const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
+    const [activeSession, setActiveSession] = useState<ClassSession | null>(null);
+    const [students, setStudents] = useState<User[]>([]);
+    const [showFullScreenQR, setShowFullScreenQR] = useState(false);
+    const [scheduleStatus, setScheduleStatus] = useState({ currentClassId: null as string | null, nextClassId: null as string | null });
+    const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
+    const [locationLoading, setLocationLoading] = useState(false);
+    const [startingSessionId, setStartingSessionId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (user) {
+            refreshTimetable();
+            loadActiveSession();
+            loadStudents();
+            handleRefreshLocation();
         }
     }, [user]);
 
     useEffect(() => {
-        loadData();
-    }, [loadData]);
+        if (!activeSession) return;
+        
+        const interval = setInterval(async () => {
+             // Generate dynamic QR token
+             const token = Math.random().toString(36).substring(7);
+             const timestamp = Date.now();
+             // Format: SECURE:SESSION_ID:TIMESTAMP:TOKEN
+             const qrContent = `SECURE:${activeSession.id}:${timestamp}:${token}`;
+             
+             await storageService.updateSessionQR(activeSession.id, qrContent, token, timestamp);
+             
+             setActiveSession(prev => prev ? ({ 
+                 ...prev, 
+                 currentQRCode: qrContent,
+                 lastQrToken: token, 
+                 lastQrTimestamp: timestamp 
+             }) : null);
+        }, SYSTEM_CONFIG.QR_REFRESH_INTERVAL_MS);
+        
+        return () => clearInterval(interval);
+    }, [activeSession?.id]);
 
-    // Derived subjects from profile + timetable
-    const facultySubjects = useMemo(() => {
-        const set = new Set<string>();
-        if (user?.subject) set.add(user.subject);
-        timetable.forEach(t => set.add(t.subject));
-        return Array.from(set);
-    }, [user, timetable]);
+    useEffect(() => {
+        const updateStatus = () => setScheduleStatus(getScheduleStatus(timetable));
+        updateStatus();
+        const interval = setInterval(updateStatus, 60000);
+        return () => clearInterval(interval);
+    }, [timetable]);
 
-    // Session Logic
-    const startSession = async () => {
-        if (!user?.subject && facultySubjects.length === 0) {
-            setError("No subjects assigned. Please update your profile or timetable.");
-            return;
-        }
-        setLoading(true);
-        setError(null);
+    const refreshTimetable = async () => {
+        if (!user) return;
+        const data = await storageService.getTimetable(user.uid);
+        setTimetable(data);
+    };
+
+    const loadActiveSession = async () => {
+        if (!user) return;
+        const session = await storageService.getActiveSession(user.uid);
+        setActiveSession(session || null);
+    };
+
+    const loadStudents = async () => {
+        const allUsers = await storageService.getAllUsers();
+        setStudents(allUsers.filter(u => u.role === UserRole.STUDENT));
+    };
+
+    const handleRefreshLocation = async () => {
+        setLocationLoading(true);
         try {
-            // Ensure we get a valid location
-            const location = await getCurrentLocation();
-            if (!location || (location.lat === 0 && location.lng === 0)) {
-               throw new Error("Could not fetch valid location. Please check your GPS settings.");
-            }
-
-            const sessionId = Date.now().toString();
-            const token = Math.random().toString(36).substring(7);
-            const timestamp = Date.now();
-            const qrData = `SECURE:${sessionId}:${timestamp}:${token}`;
-
-            // Default to user's primary subject, or first from list
-            const sessionSubject = user?.subject || facultySubjects[0];
-
-            const newSession: ClassSession = {
-                id: sessionId,
-                facultyId: user!.uid,
-                subject: sessionSubject,
-                startTime: Date.now(),
-                endTime: null,
-                isActive: true,
-                location,
-                currentQRCode: qrData,
-                lastQrToken: token,
-                lastQrTimestamp: timestamp
-            };
-
-            await storageService.createSession(newSession);
-            setActiveSession(newSession);
-            setInitialLocation(location);
-            setShowFullScreenQR(true);
-        } catch (err: any) {
-            setError(err.message || "Failed to start session. Check location permissions.");
+            const loc = await getCurrentLocation();
+            setCurrentLocation(loc);
+        } catch (error) {
+            console.error("Location error:", error);
+            alert("Could not refresh location. Please ensure GPS is enabled and permissions are granted.");
         } finally {
-            setLoading(false);
+            setLocationLoading(false);
         }
     };
 
-    const stopSession = async () => {
-        if (activeSession) {
+    const handleStartSession = async (timetableId: string) => {
+        if (!user) return;
+        const entry = timetable.find(t => t.id === timetableId);
+        if (!entry) return;
+
+        if (window.confirm(`Start attendance session for ${entry.subject}?`)) {
+            setStartingSessionId(timetableId);
+            try {
+                // Get location with error handling to avoid silent failure
+                let location;
+                try {
+                     location = await getCurrentLocation();
+                } catch (locError: any) {
+                    console.error("Location retrieval failed", locError);
+                    alert(`Location Error: ${locError.message || 'Could not get GPS location'}. Ensure GPS is on.`);
+                    setStartingSessionId(null);
+                    return;
+                }
+                
+                const newSession: ClassSession = {
+                    id: Date.now().toString(),
+                    facultyId: user.uid,
+                    subject: entry.subject,
+                    startTime: Date.now(),
+                    endTime: null,
+                    isActive: true,
+                    location: location, // Stores faculty GPS as center of geofence
+                    currentQRCode: '',
+                };
+
+                await storageService.createSession(newSession);
+                await loadActiveSession();
+            } catch (error: any) {
+                console.error("Failed to start session", error);
+                const msg = error.message || 'Could not start session';
+                alert(`System Error: ${msg}. Please check your connection.`);
+            } finally {
+                setStartingSessionId(null);
+            }
+        }
+    };
+
+    const handleEndSession = async () => {
+        if (!activeSession) return;
+        if (window.confirm("End current session?")) {
             await storageService.endSession(activeSession.id);
             setActiveSession(null);
-            setShowFullScreenQR(false);
         }
     };
 
-    // QR Rotation & Location Check
-    useEffect(() => {
-        if (!activeSession) {
-            setCountdown(0);
-            return;
-        }
-
-        const interval = setInterval(async () => {
-            try {
-                // 1. Update QR
-                const token = Math.random().toString(36).substring(7);
-                const timestamp = Date.now();
-                const qrData = `SECURE:${activeSession.id}:${timestamp}:${token}`;
-                await storageService.updateSessionQR(activeSession.id, qrData, token, timestamp);
-                
-                setActiveSession(prev => prev ? ({ ...prev, currentQRCode: qrData }) : null);
-                setCountdown(QR_REFRESH_INTERVAL_MS / 1000);
-
-                // 2. Check Location
-                if (initialLocation) {
-                    const currentLoc = await getCurrentLocation();
-                    const dist = calculateDistance(initialLocation, currentLoc);
-                    if (dist > MAX_FACULTY_MOVEMENT_METERS) {
-                        stopSession();
-                        setError("Session stopped: You moved too far from the class location.");
-                    }
-                }
-            } catch (e) {
-                console.error("Session update failed", e);
-            }
-        }, QR_REFRESH_INTERVAL_MS);
-
-        const countdownInterval = setInterval(() => {
-            setCountdown(c => c > 0 ? c - 1 : 0);
-        }, 1000);
-
-        return () => {
-            clearInterval(interval);
-            clearInterval(countdownInterval);
-        };
-    }, [activeSession, initialLocation]);
-
-    const handleManualAttendance = async (uid: string, subject: string) => {
+    const handleMarkManualAttendance = async (studentId: string, subject: string) => {
         if (!user) return;
-        const student = students.find(s => s.uid === uid);
-        if (!student) return;
-
+        // Logic handled in helper component, but here for completeness of actions
         const record: AttendanceRecord = {
             id: Date.now().toString(),
-            sessionId: 'manual-' + Date.now(),
-            studentId: uid,
-            studentName: student.name,
-            subject: subject,
+            sessionId: activeSession ? activeSession.id : `manual-${Date.now()}`,
+            studentId,
+            studentName: students.find(s => s.uid === studentId)?.name || 'Unknown',
+            subject,
             timestamp: Date.now(),
             status: 'present',
             verifiedByFace: false,
             verifiedByLocation: false
         };
-        
         await storageService.markAttendance(record);
-        loadData();
     };
+
+    // Derived State
+    const subjects = user?.subject 
+        ? [user.subject] 
+        : user?.department 
+            ? Array.from(new Set(timetable.map(t => t.subject))) 
+            : [];
+
+    const currentClass = timetable.find(t => t.id === scheduleStatus.currentClassId);
+    const nextClass = timetable.find(t => t.id === scheduleStatus.nextClassId);
 
     if (!user) return <div>Loading...</div>;
 
     return (
-        <div className="space-y-6">
-            {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg flex items-center gap-3">
-                    <AlertTriangle /> {error}
-                    <button onClick={() => setError(null)} className="ml-auto"><X size={16}/></button>
+        <div className="max-w-6xl mx-auto space-y-6">
+            
+            {/* active session banner */}
+            {activeSession && (
+                <div className="bg-indigo-600 rounded-xl p-6 text-white shadow-lg flex flex-col md:flex-row justify-between items-center gap-6 animate-in slide-in-from-top-4">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-white/20 rounded-lg backdrop-blur-sm animate-pulse">
+                            <RefreshCw size={32} className="animate-spin" />
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold">{activeSession.subject}</h2>
+                            <p className="text-indigo-100 opacity-90 flex items-center gap-2">
+                                <span className="w-2 h-2 bg-green-400 rounded-full"></span> Live Attendance Session
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3">
+                         <Button onClick={() => setShowFullScreenQR(true)} className="bg-white text-indigo-600 hover:bg-indigo-50 border-0">
+                             Show QR Code
+                         </Button>
+                         <Button onClick={handleEndSession} className="bg-red-500 hover:bg-red-600 text-white border-0">
+                             <StopCircle size={18} className="mr-2"/> End Session
+                         </Button>
+                    </div>
                 </div>
             )}
 
-            {view === 'dashboard' && (
-                <>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Session Card */}
-                        <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
-                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${activeSession ? 'bg-green-100 text-green-600 animate-pulse' : 'bg-indigo-100 text-indigo-600 dark:bg-slate-700 dark:text-indigo-400'}`}>
-                                {activeSession ? <RefreshCw size={40} className="animate-spin-slow" /> : <Play size={40} className="ml-1" />}
-                            </div>
-                            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
-                                {activeSession ? 'Class in Session' : 'Start Class'}
-                            </h2>
-                            <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-xs">
-                                {activeSession 
-                                    ? `Attendance is active for ${activeSession.subject}. QR refreshes in ${countdown}s.` 
-                                    : 'Begin a new attendance session. This will generate a dynamic QR code.'}
-                            </p>
-                            
-                            {activeSession ? (
-                                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
-                                    <Button onClick={() => setShowFullScreenQR(true)} className="flex-1">
-                                        <RefreshCw size={20} className="mr-2" /> Show QR
-                                    </Button>
-                                    <Button variant="danger" onClick={stopSession} className="flex-1">
-                                        <StopCircle size={20} className="mr-2" /> End Class
-                                    </Button>
-                                </div>
-                            ) : (
-                                <Button size="lg" onClick={startSession} isLoading={loading} className="w-full max-w-sm py-4 shadow-xl shadow-indigo-200/50 dark:shadow-none">
-                                    Start Attendance Session
-                                </Button>
-                            )}
-                        </div>
-
-                        {/* Quick Stats */}
-                        <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                             <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Today's Overview</h3>
-                             <div className="grid grid-cols-2 gap-4">
-                                 <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                                     <span className="text-indigo-600 dark:text-indigo-400 text-sm font-semibold uppercase">Classes</span>
-                                     <div className="text-3xl font-bold text-slate-800 dark:text-white mt-1">{timetable.filter(t => t.day === DAYS_OF_WEEK[new Date().getDay()-1]).length}</div>
-                                 </div>
-                                 <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-100 dark:border-green-900/50">
-                                     <span className="text-green-600 dark:text-green-400 text-sm font-semibold uppercase">Students</span>
-                                     <div className="text-3xl font-bold text-slate-800 dark:text-white mt-1">{students.length}</div>
-                                 </div>
-                                 <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-100 dark:border-orange-900/50 col-span-2">
-                                     <span className="text-orange-600 dark:text-orange-400 text-sm font-semibold uppercase">Recent Attendance</span>
-                                     <div className="text-3xl font-bold text-slate-800 dark:text-white mt-1">
-                                        {attendance.filter(r => r.timestamp > Date.now() - 86400000).length}
+            {activeTab === 'dashboard' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     {/* Quick Actions Card */}
+                     <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                         <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                             <LayoutDashboard className="text-indigo-500" size={20} /> Current Status
+                         </h3>
+                         
+                         {currentClass ? (
+                             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900 rounded-xl p-4">
+                                 <div className="flex justify-between items-start">
+                                     <div>
+                                         <span className="text-xs font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">Happening Now</span>
+                                         <h4 className="text-xl font-bold text-slate-800 dark:text-white mt-1">{currentClass.subject}</h4>
+                                         <p className="text-sm text-slate-500 dark:text-slate-400">{currentClass.startTime} - {currentClass.endTime}</p>
                                      </div>
-                                     <p className="text-xs text-slate-500 mt-1">Marked in last 24 hours</p>
+                                     {!activeSession ? (
+                                         <Button 
+                                            onClick={() => handleStartSession(currentClass.id)} 
+                                            className="shadow-lg shadow-green-500/20"
+                                            isLoading={startingSessionId === currentClass.id}
+                                         >
+                                             <Play size={18} className="mr-2" /> Start Class
+                                         </Button>
+                                     ) : (
+                                        <div className="px-3 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-xs font-bold flex items-center gap-1">
+                                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div> Active
+                                        </div>
+                                     )}
                                  </div>
                              </div>
-                        </div>
-                    </div>
+                         ) : nextClass ? (
+                             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-900 rounded-xl p-4">
+                                 <div className="flex justify-between items-start">
+                                     <div>
+                                         <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">Up Next</span>
+                                         <h4 className="text-xl font-bold text-slate-800 dark:text-white mt-1">{nextClass.subject}</h4>
+                                         <p className="text-sm text-slate-500 dark:text-slate-400">{nextClass.startTime} - {nextClass.endTime}</p>
+                                     </div>
+                                     <Button variant="outline" disabled className="opacity-50 cursor-not-allowed">
+                                         Wait to Start
+                                     </Button>
+                                 </div>
+                             </div>
+                         ) : (
+                            <div className="text-center py-8 text-slate-400">
+                                No classes scheduled right now.
+                            </div>
+                         )}
 
-                    <ManualAttendance 
-                        students={students} 
-                        subjects={facultySubjects} 
-                        markManualAttendance={handleManualAttendance} 
-                    />
-                </>
+                         <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                             <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+                                 <span>System Ready</span>
+                                 <span className="text-green-500 font-bold flex items-center gap-1"><CheckCircle size={14}/> Online</span>
+                             </div>
+                             
+                             {/* Location Refresh Block */}
+                             <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-full ${currentLocation ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-200 text-slate-500 dark:bg-slate-600 dark:text-slate-300'}`}>
+                                        <MapPin size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">GPS Location</p>
+                                        <p className="text-[10px] text-slate-500 font-mono">
+                                            {locationLoading ? 'Locating...' : currentLocation ? `${currentLocation.lat}, ${currentLocation.lng}` : 'Unknown'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button size="sm" variant="outline" onClick={handleRefreshLocation} isLoading={locationLoading} className="h-8 text-xs bg-white dark:bg-slate-800 gap-1">
+                                    <RefreshCw size={12} className={locationLoading ? "animate-spin" : ""} /> Refresh
+                                </Button>
+                            </div>
+
+                             <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                 <div className="bg-green-500 h-1.5 rounded-full w-full"></div>
+                             </div>
+                         </div>
+                     </div>
+                     
+                     {/* Stats / Info */}
+                     <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                             <Users className="text-purple-500" size={20} /> My Students
+                        </h3>
+                        <div className="space-y-4">
+                             <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                 <span className="text-slate-600 dark:text-slate-300">Total Assigned</span>
+                                 <span className="font-bold text-slate-900 dark:text-white text-lg">{students.length}</span>
+                             </div>
+                             <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+                                 <span className="text-slate-600 dark:text-slate-300">Avg. Attendance</span>
+                                 <span className="font-bold text-green-600 dark:text-green-400 text-lg">87%</span>
+                             </div>
+                        </div>
+                     </div>
+                </div>
             )}
 
-            {view === 'timetable' && (
+            {activeTab === 'timetable' && (
                 <TimetableManager 
                     timetable={timetable} 
-                    subjects={facultySubjects} 
+                    subjects={subjects} 
                     user={user} 
-                    refreshTimetable={loadData} 
+                    refreshTimetable={refreshTimetable} 
+                />
+            )}
+            
+            {activeTab === 'students' && (
+                 <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 dark:border-slate-700">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Student List</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left text-slate-600 dark:text-slate-300">
+                            <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 uppercase text-xs">
+                                <tr>
+                                    <th className="px-6 py-3">Name</th>
+                                    <th className="px-6 py-3">Roll No</th>
+                                    <th className="px-6 py-3">Department</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {students.map(student => (
+                                    <tr key={student.uid} className="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{student.name}</td>
+                                        <td className="px-6 py-4 font-mono text-indigo-600 dark:text-indigo-400">{student.rollNo || '-'}</td>
+                                        <td className="px-6 py-4">{student.department}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                 </div>
+            )}
+            
+            {activeTab === 'attendance' && (
+                <ManualAttendance 
+                    students={students} 
+                    subjects={subjects} 
+                    markManualAttendance={handleMarkManualAttendance} 
                 />
             )}
 
-            {view === 'students' && <StudentList students={students} />}
-            
-            {view === 'attendance' && <AttendanceReport attendance={attendance} students={students} />}
-            
-            {view === 'profile' && <FacultyProfile user={user} update={(u) => {}} />}
-
             {showFullScreenQR && activeSession && (
-                <FullScreenQRCode sessionData={activeSession} onClose={() => setShowFullScreenQR(false)} />
+                <FullScreenQRCode 
+                    sessionData={activeSession} 
+                    onClose={() => setShowFullScreenQR(false)} 
+                />
             )}
         </div>
     );

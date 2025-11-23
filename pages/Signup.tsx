@@ -66,8 +66,7 @@ const Signup: React.FC = () => {
         faceDataUrl: faceImage || undefined
       });
 
-      if (role === UserRole.ADMIN) navigate('/admin');
-      else if (role === UserRole.FACULTY) navigate('/faculty');
+      if (role === UserRole.FACULTY) navigate('/faculty');
       else navigate('/student');
     } catch (err: any) {
       console.error('Signup error:', err);
@@ -145,8 +144,8 @@ const Signup: React.FC = () => {
               {/* Role Selection */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">I am a...</label>
-                <div className="grid grid-cols-3 gap-4">
-                  {[UserRole.STUDENT, UserRole.FACULTY, UserRole.ADMIN].map((r) => (
+                <div className="grid grid-cols-2 gap-4">
+                  {[UserRole.STUDENT, UserRole.FACULTY].map((r) => (
                      <button
                         key={r}
                         onClick={() => setRole(r)}

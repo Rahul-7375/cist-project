@@ -16,3 +16,13 @@ export const SUBJECTS_BY_DEPT: Record<string, string[]> = {
   "Electronics and Communications Engineering": ["Digital Electronics", "Signals & Systems", "Microprocessors", "VLSI Design", "Communication Systems"],
   "Mechanical Engineering": ["Thermodynamics", "Fluid Mechanics", "Strength of Materials", "Machine Design"]
 };
+
+// Validation & System Constants
+export const SYSTEM_CONFIG = {
+  GPS_RADIUS_METERS: 300,
+  FACE_MATCH_THRESHOLD: 115, // 0-255 scale (Lower is stricter)
+  SCAN_TIMEOUT_SECONDS: 45,
+  QR_REFRESH_INTERVAL_MS: 10000,
+  QR_TOKEN_VALIDITY_MS: 20000,
+  SESSION_STALE_MINUTES: 90
+};
