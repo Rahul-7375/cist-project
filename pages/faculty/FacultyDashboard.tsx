@@ -1,14 +1,15 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
 import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
 import { getCurrentLocation } from '../../services/geoService';
-import { TimetableEntry, ClassSession, User, UserRole, AttendanceRecord } from '../../types';
+import { TimetableEntry, ClassSession, User, UserRole, AttendanceRecord, Feedback } from '../../types';
 import { 
   LayoutDashboard, Calendar, Users, ClipboardCheck, Clock, Edit, XCircle, GripVertical,
-  AlertTriangle, RefreshCw, X, Play, StopCircle, Trash2, MapPin, CheckCircle
+  AlertTriangle, RefreshCw, X, Play, StopCircle, Trash2, MapPin, CheckCircle, MessageSquare, Send
 } from 'lucide-react';
 import Button from '../../components/Button';
 import { SYSTEM_CONFIG } from '../../utils/constants';
@@ -60,6 +61,90 @@ const getScheduleStatus = (timetable: TimetableEntry[]) => {
 };
 
 // --- Helper Components ---
+
+const FeedbackView: React.FC<{ user: User }> = ({ user }) => {
+    const [type, setType] = useState<'bug' | 'feature' | 'general'>('general');
+    const [message, setMessage] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await storageService.submitFeedback({
+                id: Date.now().toString(),
+                userId: user.uid,
+                userName: user.name,
+                role: user.role,
+                type,
+                message,
+                timestamp: Date.now(),
+                status: 'new'
+            });
+            setSuccess(true);
+            setMessage('');
+            setTimeout(() => setSuccess(false), 3000);
+        } catch (error) {
+            alert("Failed to submit feedback.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="max-w-2xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                <MessageSquare className="text-indigo-500" /> Help & Feedback
+            </h3>
+            <p className="text-slate-500 dark:text-slate-400 mb-6">Found a bug or have a suggestion? Let us know!</p>
+            
+            {success && (
+                <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg flex items-center gap-2">
+                    <CheckCircle size={20} /> Feedback submitted successfully!
+                </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Feedback Type</label>
+                    <div className="grid grid-cols-3 gap-3">
+                        {['general', 'bug', 'feature'].map(t => (
+                            <button
+                                key={t}
+                                type="button"
+                                onClick={() => setType(t as any)}
+                                className={`py-2 px-4 rounded-lg capitalize border transition-colors ${
+                                    type === t 
+                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' 
+                                    : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                                }`}
+                            >
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
+                    <textarea
+                        required
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        rows={4}
+                        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="Describe your issue or suggestion..."
+                    />
+                </div>
+                <div className="flex justify-end">
+                    <Button type="submit" isLoading={loading}>
+                        <Send size={18} /> Submit Feedback
+                    </Button>
+                </div>
+            </form>
+        </div>
+    );
+};
 
 const FullScreenQRCode = ({ sessionData, onClose }: { sessionData: ClassSession, onClose: () => void }) => {
     return (
@@ -523,14 +608,30 @@ const FacultyDashboard: React.FC = () => {
         setStudents(allUsers.filter(u => u.role === UserRole.STUDENT));
     };
 
+    const getLocationWithTimeout = (): Promise<{lat: number, lng: number}> => {
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error("Location request timed out"));
+            }, 5000);
+
+            getCurrentLocation().then(loc => {
+                clearTimeout(timeoutId);
+                resolve(loc);
+            }).catch(err => {
+                clearTimeout(timeoutId);
+                reject(err);
+            });
+        });
+    };
+
     const handleRefreshLocation = async () => {
         setLocationLoading(true);
         try {
-            const loc = await getCurrentLocation();
+            const loc = await getLocationWithTimeout();
             setCurrentLocation(loc);
         } catch (error) {
             console.error("Location error:", error);
-            alert("Could not refresh location. Please ensure GPS is enabled and permissions are granted.");
+            // Don't alert on auto-refresh, just log
         } finally {
             setLocationLoading(false);
         }
@@ -544,15 +645,18 @@ const FacultyDashboard: React.FC = () => {
         if (window.confirm(`Start attendance session for ${entry.subject}?`)) {
             setStartingSessionId(timetableId);
             try {
-                // Get location with error handling to avoid silent failure
-                let location;
+                // Get location with timeout & race condition handling
+                let location = { lat: 0, lng: 0 };
                 try {
-                     location = await getCurrentLocation();
+                     location = await getLocationWithTimeout();
                 } catch (locError: any) {
                     console.error("Location retrieval failed", locError);
-                    alert(`Location Error: ${locError.message || 'Could not get GPS location'}. Ensure GPS is on.`);
-                    setStartingSessionId(null);
-                    return;
+                    // If location fails, ask user if they want to proceed anyway
+                    if (!window.confirm("Could not get GPS location. Students will not be geofenced. Proceed anyway?")) {
+                        setStartingSessionId(null);
+                        return;
+                    }
+                    // Proceed with 0,0 location (disabled geofence effectively)
                 }
                 
                 const newSession: ClassSession = {
@@ -562,7 +666,7 @@ const FacultyDashboard: React.FC = () => {
                     startTime: Date.now(),
                     endTime: null,
                     isActive: true,
-                    location: location, // Stores faculty GPS as center of geofence
+                    location: location, 
                     currentQRCode: '',
                 };
 
@@ -588,7 +692,6 @@ const FacultyDashboard: React.FC = () => {
 
     const handleMarkManualAttendance = async (studentId: string, subject: string) => {
         if (!user) return;
-        // Logic handled in helper component, but here for completeness of actions
         const record: AttendanceRecord = {
             id: Date.now().toString(),
             sessionId: activeSession ? activeSession.id : `manual-${Date.now()}`,
@@ -785,6 +888,10 @@ const FacultyDashboard: React.FC = () => {
                     subjects={subjects} 
                     markManualAttendance={handleMarkManualAttendance} 
                 />
+            )}
+            
+            {activeTab === 'feedback' && (
+                <FeedbackView user={user} />
             )}
 
             {showFullScreenQR && activeSession && (

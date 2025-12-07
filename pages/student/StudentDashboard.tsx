@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
@@ -6,10 +7,94 @@ import jsQR from 'jsqr';
 import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
 import { calculateDistance, getCurrentLocation } from '../../services/geoService';
-import { AttendanceRecord, TimetableEntry } from '../../types';
-import { Scan, CheckCircle, XCircle, Camera, User as UserIcon, Briefcase, History, Calendar, Shield, SwitchCamera, Clock, Timer, AlertTriangle, ScanFace, Fingerprint, MapPin, Loader2, RefreshCw, ArrowLeft } from 'lucide-react';
+import { AttendanceRecord, TimetableEntry, User } from '../../types';
+import { Scan, CheckCircle, XCircle, Camera, User as UserIcon, Briefcase, History, Calendar, Shield, SwitchCamera, Clock, Timer, AlertTriangle, ScanFace, Fingerprint, MapPin, Loader2, RefreshCw, ArrowLeft, MessageSquare, Send } from 'lucide-react';
 import Button from '../../components/Button';
 import { SUBJECTS_BY_DEPT, SYSTEM_CONFIG } from '../../utils/constants';
+
+const FeedbackView: React.FC<{ user: User }> = ({ user }) => {
+    const [type, setType] = useState<'bug' | 'feature' | 'general'>('general');
+    const [message, setMessage] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await storageService.submitFeedback({
+                id: Date.now().toString(),
+                userId: user.uid,
+                userName: user.name,
+                role: user.role,
+                type,
+                message,
+                timestamp: Date.now(),
+                status: 'new'
+            });
+            setSuccess(true);
+            setMessage('');
+            setTimeout(() => setSuccess(false), 3000);
+        } catch (error) {
+            alert("Failed to submit feedback.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="max-w-2xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
+            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                <MessageSquare className="text-indigo-500" /> Help & Feedback
+            </h3>
+            <p className="text-slate-500 dark:text-slate-400 mb-6">Need help with the app or found an issue?</p>
+            
+            {success && (
+                <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg flex items-center gap-2">
+                    <CheckCircle size={20} /> Feedback submitted successfully!
+                </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Feedback Type</label>
+                    <div className="grid grid-cols-3 gap-3">
+                        {['general', 'bug', 'feature'].map(t => (
+                            <button
+                                key={t}
+                                type="button"
+                                onClick={() => setType(t as any)}
+                                className={`py-2 px-4 rounded-lg capitalize border transition-colors ${
+                                    type === t 
+                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' 
+                                    : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                                }`}
+                            >
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
+                    <textarea
+                        required
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        rows={4}
+                        className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="Describe your issue or suggestion..."
+                    />
+                </div>
+                <div className="flex justify-end">
+                    <Button type="submit" isLoading={loading}>
+                        <Send size={18} /> Submit Feedback
+                    </Button>
+                </div>
+            </form>
+        </div>
+    );
+};
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -821,6 +906,10 @@ const StudentDashboard: React.FC = () => {
                         </div>
                     </div>
                 </div>
+             )}
+             
+             {activeTab === 'feedback' && (
+                <FeedbackView user={user} />
              )}
           </div>
        )}

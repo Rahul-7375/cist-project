@@ -55,20 +55,31 @@ export interface AttendanceRecord {
   verifiedByLocation: boolean;
 }
 
-export interface GeoLocation {
-  lat: number;
-  lng: number;
-}
-
 export interface AttendanceAlert {
   id: string;
   studentId: string;
   studentName: string;
   rollNo?: string;
   department?: string;
-  type: 'critical' | 'warning';
+  type: 'warning' | 'critical';
   message: string;
   attendancePercentage: number;
   missedSessions: number;
   totalSessions: number;
+}
+
+export interface GeoLocation {
+  lat: number;
+  lng: number;
+}
+
+export interface Feedback {
+  id: string;
+  userId: string;
+  userName: string;
+  role: UserRole;
+  type: 'bug' | 'feature' | 'general';
+  message: string;
+  timestamp: number;
+  status: 'new' | 'reviewed';
 }

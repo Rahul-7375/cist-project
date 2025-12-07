@@ -1,5 +1,6 @@
 
-import { User, UserRole, TimetableEntry, ClassSession, AttendanceRecord } from '../types';
+
+import { User, UserRole, TimetableEntry, ClassSession, AttendanceRecord, Feedback } from '../types';
 import { db } from '../firebase';
 import { 
   collection, 
@@ -19,6 +20,7 @@ const USERS_COLLECTION = 'users';
 const TIMETABLE_COLLECTION = 'timetable';
 const SESSIONS_COLLECTION = 'sessions';
 const ATTENDANCE_COLLECTION = 'attendance';
+const FEEDBACK_COLLECTION = 'feedback';
 
 // Helper to remove undefined fields as Firestore doesn't support them
 const sanitizeData = (data: any) => {
@@ -453,5 +455,31 @@ export const storageService = {
         totalAttendance: 0
       };
     }
+  },
+
+  // Feedback Methods
+  submitFeedback: async (feedback: Feedback) => {
+    try {
+        const feedbackRef = collection(db, FEEDBACK_COLLECTION);
+        await addDoc(feedbackRef, {
+            ...feedback,
+            createdAt: Date.now()
+        });
+        console.log("Feedback submitted");
+    } catch (error) {
+        console.error("Error submitting feedback:", error);
+        throw error;
+    }
+  },
+
+  getAllFeedback: async (): Promise<Feedback[]> => {
+      try {
+          const feedbackRef = collection(db, FEEDBACK_COLLECTION);
+          const querySnapshot = await getDocs(feedbackRef);
+          return querySnapshot.docs.map(doc => doc.data() as Feedback).sort((a, b) => b.timestamp - a.timestamp);
+      } catch (error) {
+          console.error("Error fetching feedback:", error);
+          return [];
+      }
   }
 };

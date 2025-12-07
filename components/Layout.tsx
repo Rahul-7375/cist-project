@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogOut, LayoutDashboard, User, ShieldCheck, Sun, Moon, QrCode, History, Calendar, UserCircle, Users, CheckSquare, Menu, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, User, ShieldCheck, Sun, Moon, QrCode, History, Calendar, UserCircle, Users, CheckSquare, Menu, X, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
@@ -37,7 +37,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex transition-colors duration-200 relative overflow-hidden">
+    <div className="h-screen w-full bg-slate-50 dark:bg-slate-900 flex transition-colors duration-200 relative overflow-hidden">
       
       {/* Mobile Overlay */}
       <div 
@@ -51,9 +51,9 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-indigo-900 dark:bg-slate-950 text-white transition-transform duration-300 ease-in-out flex flex-col shadow-2xl md:shadow-none
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:static md:inset-auto md:flex flex-shrink-0
+        md:translate-x-0 md:static md:inset-auto md:flex flex-shrink-0 h-full
       `}>
-        <div className="p-6 border-b border-indigo-800 dark:border-slate-800 flex justify-between items-center">
+        <div className="p-6 border-b border-indigo-800 dark:border-slate-800 flex justify-between items-center flex-shrink-0">
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <ShieldCheck className="w-8 h-8 text-indigo-400" />
@@ -70,7 +70,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
           </button>
         </div>
         
-        <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
+        <nav className="p-4 space-y-2 flex-1 overflow-y-auto custom-scrollbar">
           {user?.role === UserRole.STUDENT ? (
             <>
               <Link to="/student?view=attendance" onClick={closeSidebar} className={navItemClass(currentView === 'attendance')}>
@@ -88,6 +88,10 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
               <Link to="/student?view=profile" onClick={closeSidebar} className={navItemClass(currentView === 'profile')}>
                 <UserCircle size={20} />
                 <span>Profile</span>
+              </Link>
+              <Link to="/student?view=feedback" onClick={closeSidebar} className={navItemClass(currentView === 'feedback')}>
+                <MessageSquare size={20} />
+                <span>Help & Feedback</span>
               </Link>
             </>
           ) : user?.role === UserRole.FACULTY ? (
@@ -112,6 +116,10 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                 <UserCircle size={20} />
                 <span>Profile</span>
               </Link>
+              <Link to="/faculty?view=feedback" onClick={closeSidebar} className={navItemClass(currentView === 'feedback')}>
+                <MessageSquare size={20} />
+                <span>Help & Feedback</span>
+              </Link>
             </>
           ) : (
             <button onClick={() => { navigate('/'); closeSidebar(); }} className={navItemClass(location.pathname.endsWith('dashboard') || location.pathname === '/')}>
@@ -132,7 +140,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
         </nav>
 
         {/* Bottom Actions (Desktop) */}
-        <div className="p-4 border-t border-indigo-800 dark:border-slate-800">
+        <div className="p-4 border-t border-indigo-800 dark:border-slate-800 flex-shrink-0">
           <div className="hidden md:flex items-center gap-3 px-4 py-2 text-indigo-300 text-sm mb-2">
             <User size={16} />
             <span className="truncate">{user?.name}</span>
@@ -148,8 +156,8 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-screen w-full overflow-hidden relative">
-        <header className="bg-white dark:bg-slate-800 shadow-sm p-4 md:p-6 flex justify-between items-center border-b border-slate-200 dark:border-slate-700 transition-colors duration-200 sticky top-0 z-30">
+      <main className="flex-1 flex flex-col h-full w-full overflow-hidden relative">
+        <header className="bg-white dark:bg-slate-800 shadow-sm p-4 md:p-6 flex justify-between items-center border-b border-slate-200 dark:border-slate-700 transition-colors duration-200 flex-shrink-0 z-30">
           <div className="flex items-center gap-4">
             {/* Mobile Menu Toggle */}
             <button 
@@ -176,7 +184,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
         </header>
         
         <div className="flex-1 overflow-auto p-4 md:p-6 bg-slate-50 dark:bg-slate-900 transition-colors duration-200 scroll-smooth">
-          <div className="max-w-7xl mx-auto h-full">
+          <div className="max-w-7xl mx-auto min-h-full">
             {children}
           </div>
         </div>
